@@ -1,0 +1,79 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --color-radar-stroke: var(--radar-stroke);
+  --color-radar-fill: var(--radar-fill);
+}
+
+:root {
+  /* Clean Light Mode - Editorial SaaS feel */
+  --background: #f8fafc; /* slate-50 */
+  --foreground: #0f172a; /* slate-900 */
+  --radar-stroke: #475569; /* slate-600 */
+  --radar-fill: rgba(71, 85, 105, 0.1);
+  --bg-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.02'/%3E%3C/svg%3E");
+}
+
+:root.dark {
+  /* Refined Dark Mode */
+  --background: #0c0a09; /* stone-950 */
+  --foreground: #fafaf9; /* stone-50 */
+  --radar-stroke: #a8a29e; /* stone-400 */
+  --radar-fill: rgba(168, 162, 158, 0.1);
+  --bg-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+}
+
+body {
+  font-family: var(--font-inter), sans-serif;
+  overflow: hidden;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Hide Scrollbar */
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Radar Chart */
+.recharts-polar-grid-angle line,
+.recharts-polar-grid-concentric polygon {
+  stroke: transparent !important;
+}
+
+/* RTL Fixes */
+[dir="rtl"] .rtl\:flip { transform: scaleX(-1); }
+[dir="rtl"] select { text-align: right; }
+
+/* Noise Background */
+.noise-bg {
+  background-image: var(--bg-noise);
+}
+
+/* Selection */
+::selection { background: rgba(71,85,105,0.2); }
+.dark ::selection { background: rgba(168,162,158,0.2); }
+
+/* Smooth animations */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up {
+  animation: fadeUp 0.35s ease-out both;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.85); opacity: 1; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+.animate-pulse-ring {
+  animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Print */
+@media print {
+  .print\\:hidden { display: none !important; }
+  .print\\:block { display: block !important; }
+}
