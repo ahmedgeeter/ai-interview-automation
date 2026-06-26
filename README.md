@@ -1,9 +1,9 @@
 <div align="center">
-  <img src="./frontend/app/icon.png" alt="Logo" width="100" height="100">
+  <img src="./frontend/app/icon.png" alt="AutoHire Logo" width="100" height="100">
   
-  # 🤖 AutoHire: The Autonomous AI Engineering Interviewer
+  # AutoHire: Autonomous Engineering Interview Platform
   
-  **An elite, fully-autonomous AI interviewing platform designed to simulate real-world technical interviews with zero human intervention. Assess candidates dynamically with real-time feedback, deep technical probing, and strict competency mapping.**
+  An advanced, AI-driven interviewing platform engineered to simulate real-world technical interviews with complete autonomy. AutoHire evaluates software engineers dynamically through voice interactions, providing real-time feedback, deep technical probing, and strict competency mapping.
 
   [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
   [![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
@@ -13,56 +13,58 @@
 
 ---
 
-## 🌟 Vision
-Traditional technical interviews are time-consuming, expensive, and subject to human bias. **AutoHire** solves this by deploying a voice-capable, adaptive AI agent (powered by LLMs like Groq/LLaMA-3 and Gemini) that interacts with candidates precisely like an elite Engineering Manager.
+## Executive Summary
 
-The system evaluates **Technical Depth, Architecture, Problem Solving, and Communication** strictly and provides an unbiased Hire/No-Hire recommendation at the end of the session.
+Traditional technical screening is resource-intensive, difficult to scale, and susceptible to unconscious human bias. **AutoHire** addresses these systemic challenges by deploying a specialized, adaptive AI agent (powered by LLMs like LLaMA-3 via Groq and Gemini) that interacts with candidates exactly as a Senior Engineering Manager would.
 
----
-
-## 🚀 Key Features
-
-- 🎙️ **Voice & Text Modalities**: Candidates can speak directly to the AI (Speech-to-Text) and the AI responds via hyper-realistic Text-to-Speech (Edge TTS).
-- ⚡ **Zero-Latency Booting**: While the candidate sets up, background subagents scrape the web to fetch role-specific constraints and context to ensure the interview starts instantly.
-- 📊 **Real-Time Competency Tracking (WebSockets)**: As the candidate speaks, the AI evaluates the response in milliseconds and updates live progress bars for specific skills.
-- ⏱️ **Dynamic Constraints**: Flexible setups allowing limits by strict Question Counts (e.g., 5 questions) or Time Limits (e.g., 30 minutes).
-- 🌐 **Fully Bilingual (i18n)**: Seamless switching between **English (LTR)** and **Arabic (RTL)** across the entire UI and AI Voice Persona.
-- 🛡️ **Anti-Cheat Mechanics**: Detects tab-switching and flags the final scorecard if the candidate loses focus.
-- 🏆 **Final Scorecard & Competency Radar**: Generates a visually stunning, downloadable PDF scorecard containing strengths, weaknesses, and a strict final recommendation.
+The system evaluates candidates strictly across Technical Depth, Software Architecture, Problem Solving, and Communication Skills, concluding with an unbiased, data-backed recommendation.
 
 ---
 
-## 🏗️ Architecture
+## Core Features
 
-The platform is split into a modern decoupled architecture:
+- **Voice & Text Modalities**: Candidates converse naturally with the system. It handles real-time Speech-to-Text and responds with high-fidelity Text-to-Speech (Edge TTS), maintaining conversational flow.
+- **Zero-Latency Booting**: To ensure a frictionless candidate experience, background subagents concurrently scrape the web to fetch role-specific constraints and context while the candidate reviews the setup screen.
+- **Real-Time Competency Tracking**: Leveraging stateful WebSockets, the platform evaluates each response in milliseconds. The UI dynamically updates progress bars reflecting specific engineering competencies as the interview progresses.
+- **Dynamic Session Constraints**: The system supports flexible limits configured either by strict Question Counts or exact Time Limits, adapting seamlessly to the hiring pipeline's requirements.
+- **Bilingual Interface**: Seamless switching between English (LTR) and Arabic (RTL) across the entire UI and the AI Voice Persona, enabling localized hiring.
+- **Anti-Cheat Mechanics**: Integrates strict client-side tracking for tab-switching and focus loss, which automatically flags the final scorecard to preserve assessment integrity.
+- **Comprehensive Scorecard Generation**: Upon session completion, the platform generates a beautifully structured, downloadable PDF scorecard containing competency radar charts, key strengths, weaknesses, and a strict final hiring recommendation.
 
-1. **Frontend (Next.js 15, React 19, Tailwind CSS V4):** 
-   - Beautiful, noise-textured dark/light UI.
-   - Recharts for Radar data visualization.
-   - Custom React Hooks for audio streaming and recording.
+---
+
+## System Architecture
+
+The platform is designed around a modern, decoupled architecture prioritizing low latency and maintainability.
+
+1. **Frontend (Next.js 15, React 19, Tailwind CSS v4):** 
+   - A minimalist, accessibility-focused UI supporting dark and light themes.
+   - Built-in data visualization using Recharts.
+   - Custom React Hooks engineered for seamless audio streaming, recording, and WebSocket state management.
+
 2. **Backend (FastAPI, Python, LangChain, LangGraph):**
-   - Stateful WebSocket connections managing the interview workflow.
-   - Multi-agent workflow:
-     - **Interviewer Agent**: Asks adaptive questions and probes deeply.
-     - **Live Evaluator Agent**: Scores each answer in real-time.
-     - **Final Assessor Agent**: Strictly grades the entire transcript.
+   - Asynchronous WebSocket endpoints managing the complex interview state machine.
+   - A Multi-Agent workflow orchestrating three distinct LLM roles:
+     - **The Interviewer**: Drives the conversation, asks adaptive questions, and probes for deeper technical understanding.
+     - **The Live Evaluator**: Scores individual responses in real-time without blocking the primary conversational loop.
+     - **The Assessor**: Strictly grades the complete transcript at the end, enforcing a rigorous rubric.
 
 ---
 
-## 💻 Local Setup & Installation
+## Local Development & Setup
 
 ### Prerequisites
 - Node.js 18+
 - Python 3.11+
-- API Keys for `Groq` and `Gemini` (Google Generative AI).
+- API Keys for Groq and Google Generative AI (Gemini).
 
-### 1. Clone the repository
+### 1. Repository Setup
 ```bash
 git clone https://github.com/your-username/ai-automation-interview.git
 cd ai-automation-interview
 ```
 
-### 2. Backend Setup (FastAPI)
+### 2. Backend Initialization (FastAPI)
 ```bash
 cd backend
 python -m venv .venv
@@ -74,38 +76,39 @@ source .venv/bin/activate
 
 pip install -r requirements.txt
 
-# Create your .env file
+# Environment Configuration
 echo "GROQ_API_KEY=your_groq_key" > .env
 echo "GEMINI_API_KEY=your_gemini_key" >> .env
 
-# Run the server
+# Start the server
 uvicorn app.main:app --port 8000 --reload
 ```
 
-### 3. Frontend Setup (Next.js)
+### 3. Frontend Initialization (Next.js)
 Open a new terminal window:
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-Visit `http://localhost:3000` to start your first interview!
+Navigate to `http://localhost:3000` to launch the application.
 
 ---
 
-## 🌍 Cloud Deployment
+## Deployment Strategy
 
-- **Frontend (Vercel):** The frontend is highly optimized for Edge deployment. Just run `npx vercel` inside the `frontend` folder.
-- **Backend (Render):** A `render.yaml` and `Dockerfile` are included for 1-click deployment on Render.com. Just connect your GitHub repo!
+- **Frontend (Vercel):** The application is optimized for Edge deployment. It can be deployed instantly using the Vercel CLI (`npx vercel` inside the `frontend` directory).
+- **Backend (Render):** A robust `render.yaml` and `Dockerfile` are included for streamlined, 1-click containerized deployment on Render.com.
 
 ---
 
-## 🛡️ Privacy & Security
-- **No data retention**: Interview transcripts exist only in memory during the session.
-- **Strict Evaluator Prompting**: The AI is strictly instructed to assign zero scores if a user skips questions or provides blank audio, ensuring high evaluation integrity.
+## Assessment Integrity & Security
+
+- **Data Minimization**: Interview transcripts are stored strictly in-memory during the session and are discarded upon completion, ensuring compliance with data privacy standards.
+- **Evaluation Strictness**: The evaluation agents are heavily prompted to apply rigorous standards. Blank audio, skipped questions, or superficial answers automatically result in zero scores to prevent hallucinated positive feedback.
 
 ---
 
 <div align="center">
-  <i>Built with ❤️ to revolutionize technical hiring.</i>
+  <i>Engineered to bring objectivity and scale to technical hiring.</i>
 </div>
