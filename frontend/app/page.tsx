@@ -102,7 +102,7 @@ export default function Home() {
       })();
 
       let res;
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-interview-automation.onrender.com";
       if (interviewMode === "cv" && cvFile) {
         const fd = new FormData();
         fd.append("job_title", jobTitle); fd.append("persona", persona); fd.append("interview_type", interviewFocus); fd.append("language", voiceLang); fd.append("cv_file", cvFile);
@@ -146,7 +146,7 @@ export default function Home() {
   const connectWebSocket = (id: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
     setIsTyping(true);
-    const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
+    const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "wss://ai-interview-automation.onrender.com";
     const ws = new WebSocket(`${WS_URL}/ws/${id}`);
     wsRef.current = ws;
     ws.onopen = () => { setIsConnected(true); retryCount.current = 0; };
