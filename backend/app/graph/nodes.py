@@ -65,6 +65,7 @@ def interviewer_node(state: InterviewState):
     else:
         system_prompt += "Your goal is to assess technical depth, problem-solving skills, and architecture knowledge. DO NOT ask generic behavioral questions.\n"
         
+    system_prompt += f"STRICT DOMAIN BOUNDARY: You MUST NOT ask generic Software Engineering questions (like what is an API, what is Git, what is Agile) unless they are highly specific to the {job_title} role. For a {job_title} role, focus EXCLUSIVELY on the core technologies, frameworks, and architecture patterns native to this specific domain.\n"
     system_prompt += "CRITICAL INSTRUCTION: You MUST ask only ONE short, highly realistic technical question. The question MUST be exactly 1 to 2 sentences maximum. Do NOT yap, do NOT provide long monologues, and do NOT use Markdown or emojis. Output ONLY plain text.\n"
     
     if language == "ar":
@@ -194,8 +195,13 @@ You MUST output a valid JSON object with the following schema:
     "recommended_resources": [{{"title": "String", "url": "String", "reason": "String"}}]
 }}
 
-CRITICAL EVALUATION RULE:
-If the candidate provided no answers, very few answers, or the transcript is extremely short (e.g., they just listened or skipped the questions), you MUST score them 0 across all metrics and recommend "No Hire". Be extremely strict and critical. Do NOT hallucinate positive performance when there is no evidence in the transcript.
+CRITICAL EVALUATION RUBRIC:
+1. Evidence-Based Scoring: You MUST calculate scores strictly based on the candidate's ACTUAL answers in the transcript. Do NOT invent or assume knowledge they did not explicitly demonstrate.
+2. The "Zero" Rule: If a candidate skips a question, gives a vague non-answer (e.g., "I don't know", "Yes", "Next"), or abandons the interview, you MUST give a score of 0 for that specific interaction.
+3. Strict Mathematical Averages: If you ask 5 questions and they only answer 1 well, their final score should mathematically be around 20/100, NOT 80/100.
+4. Penalize Buzzwords: If the candidate uses buzzwords without explaining the underlying mechanism, deduct points heavily.
+5. Base Zero: Assume the candidate starts at 0 points. They must earn points through detailed, technically accurate answers. Do NOT start from 100 and deduct.
+6. Recommendation: If the overall average is below 60, recommend "No Hire". If between 60 and 85, recommend "Hire". Above 85 is "Strong Hire".
 
 The candidate triggered {cheat_signals} tab-switch (cheat) signals during the interview.
 
