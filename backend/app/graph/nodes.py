@@ -204,6 +204,28 @@ Transcript:
     
     transcript = "\n".join([f"{msg.type}: {msg.content}" for msg in messages if msg.type in ("human", "ai") and "TAB_SWITCH_DETECTED" not in msg.content])
     
+    # Pre-flight check: Did the candidate actually answer?
+    human_messages = [msg.content for msg in messages if msg.type == "human" and "TAB_SWITCH_DETECTED" not in msg.content]
+    total_human_words = sum(len(m.split()) for m in human_messages)
+    
+    if total_human_words < 10:
+        language = state.get("language", "en")
+        is_ar = language == "ar"
+        return {
+            "evaluation_payload": {
+                "technical_depth": 0,
+                "problem_solving": 0,
+                "architecture": 0,
+                "communication": 0,
+                "integrity": max(0, 100 - (cheat_signals * 20)),
+                "key_strengths": ["لا يوجد أداء لتقييمه" if is_ar else "No performance to evaluate"],
+                "key_weaknesses": ["لم يجب على الأسئلة التقنية" if is_ar else "Did not answer the technical questions", "تهرب من المقابلة" if is_ar else "Abandoned or skipped the interview"],
+                "red_flags": ["لم يقدم المرشح أي إجابات فعلية لتقييم مستواه." if is_ar else "Candidate provided no substantive answers."],
+                "final_recommendation": "No Hire",
+                "recommended_resources": []
+            }
+        }
+        
     full_prompt = evaluation_prompt + transcript
     
     # Primary Evaluator with Fallback
