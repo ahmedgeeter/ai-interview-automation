@@ -102,13 +102,14 @@ export default function Home() {
       })();
 
       let res;
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
       if (interviewMode === "cv" && cvFile) {
         const fd = new FormData();
         fd.append("job_title", jobTitle); fd.append("persona", persona); fd.append("interview_type", interviewFocus); fd.append("language", voiceLang); fd.append("cv_file", cvFile);
         fd.append("max_questions", (limitMode === "questions" ? limitValue : 999).toString());
-        res = await fetch("http://localhost:8000/api/start-session-cv", { method: "POST", body: fd });
+        res = await fetch(`${API_URL}/api/start-session-cv`, { method: "POST", body: fd });
       } else {
-        res = await fetch("http://localhost:8000/api/start-session", {
+        res = await fetch(`${API_URL}/api/start-session`, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ 
             job_title: jobTitle, 
@@ -145,7 +146,8 @@ export default function Home() {
   const connectWebSocket = (id: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
     setIsTyping(true);
-    const ws = new WebSocket(`ws://localhost:8000/ws/${id}`);
+    const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
+    const ws = new WebSocket(`${WS_URL}/ws/${id}`);
     wsRef.current = ws;
     ws.onopen = () => { setIsConnected(true); retryCount.current = 0; };
     ws.onmessage = (event) => {
