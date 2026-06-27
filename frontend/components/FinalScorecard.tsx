@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Radar, RadarChart, PolarAngleAxis, ResponsiveContainer } from "recharts";
-import { Award, Share2, ShieldCheck, ShieldAlert, FileDown, CheckCircle2, BookOpen } from "lucide-react";
+import { Award, Share2, ShieldCheck, ShieldAlert, FileDown, CheckCircle2, BookOpen, Home } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
 
@@ -93,7 +93,10 @@ export default function FinalScorecard({ payload, jobTitle }: FinalScorecardProp
                 <p className="text-sm text-slate-500 dark:text-stone-400 font-medium">{jobTitle}</p>
               </div>
             </div>
-            <div className="flex items-center gap-3 w-full md:w-auto">
+            <div className="flex items-center gap-3 w-full md:w-auto flex-wrap justify-end">
+              <button onClick={() => window.location.reload()} className="flex-1 md:flex-none justify-center bg-slate-100 dark:bg-stone-800 hover:bg-slate-200 dark:hover:bg-stone-700 text-slate-800 dark:text-stone-200 px-5 py-2.5 rounded-md text-xs font-bold flex items-center gap-2 transition-colors shadow-sm">
+                <Home className="w-4 h-4" />{locale === "ar" ? "الرئيسية" : "Home"}
+              </button>
               <button onClick={() => window.print()} className="flex-1 md:flex-none justify-center bg-white dark:bg-stone-900 border border-slate-200 dark:border-stone-800 hover:bg-slate-50 dark:hover:bg-stone-800 text-slate-700 dark:text-stone-300 px-5 py-2.5 rounded-md text-xs font-bold flex items-center gap-2 transition-colors shadow-sm">
                 <FileDown className="w-4 h-4" />{t("pdf_report")}
               </button>
@@ -117,7 +120,7 @@ export default function FinalScorecard({ payload, jobTitle }: FinalScorecardProp
               {/* Overall Score Box */}
               <div className="p-8 rounded-xl border border-slate-200 dark:border-stone-800 bg-white dark:bg-stone-900/40 text-center shadow-sm">
                 <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-stone-500 mb-6">{t("overall_score")}</div>
-                <div className="text-6xl font-black text-slate-900 dark:text-stone-50 tracking-tighter leading-normal py-2">
+                <div className="text-6xl font-black text-slate-900 dark:text-stone-50 leading-normal py-2">
                   {overallScore}<span className="text-2xl text-slate-400 dark:text-stone-600 font-semibold ml-1">/100</span>
                 </div>
               </div>
@@ -127,7 +130,7 @@ export default function FinalScorecard({ payload, jobTitle }: FinalScorecardProp
                 <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-stone-500 text-center mb-4">{t("live_competency")}</div>
                 <div className="h-[280px] w-full relative -mt-4" dir="ltr">
                   <ResponsiveContainer width="100%" height="100%">
-                    <RadarChart cx="50%" cy="50%" outerRadius="65%" data={radarData}>
+                    <RadarChart cx="50%" cy="50%" outerRadius="55%" data={radarData}>
                       <PolarAngleAxis dataKey="subject" tick={{ fill: isDark ? "#a8a29e" : "#64748b", fontSize: 11, fontWeight: 700 }} />
                       <Radar name="Candidate" dataKey="score" stroke="var(--color-radar-stroke)" fill="var(--color-radar-fill)" strokeWidth={2.5} fillOpacity={0.6} />
                     </RadarChart>
