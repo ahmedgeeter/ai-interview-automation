@@ -225,15 +225,18 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             sessions[session_id] = result_state
             last_ai_message = result_state["messages"][-1].content
             
-            language = result_state.get("language", "en")
-            audio_b64 = await generate_tts_base64(last_ai_message, language)
-            
             await websocket.send_json({
                 "type": "message",
                 "content": last_ai_message,
                 "question_count": result_state["question_count"],
-                "audio_base64": audio_b64,
                 "telemetry": result_state.get("telemetry", {})
+            })
+            
+            language = result_state.get("language", "en")
+            audio_b64 = await generate_tts_base64(last_ai_message, language)
+            await websocket.send_json({
+                "type": "audio_only",
+                "audio_base64": audio_b64
             })
 
         while True:
@@ -294,15 +297,18 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 # Send next AI message
                 last_msg = new_state["messages"][-1]
                 if isinstance(last_msg, AIMessage):
-                    language = new_state.get("language", "en")
-                    audio_b64 = await generate_tts_base64(last_msg.content, language)
-                    
                     await websocket.send_json({
                         "type": "message",
                         "content": last_msg.content,
                         "question_count": new_state["question_count"],
-                        "audio_base64": audio_b64,
                         "telemetry": new_state.get("telemetry", {})
+                    })
+                    
+                    language = new_state.get("language", "en")
+                    audio_b64 = await generate_tts_base64(last_msg.content, language)
+                    await websocket.send_json({
+                        "type": "audio_only",
+                        "audio_base64": audio_b64
                     })
                     
                     # Fire off live eval async (fire and forget)

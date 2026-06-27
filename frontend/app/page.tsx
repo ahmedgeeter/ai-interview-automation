@@ -165,6 +165,15 @@ export default function Home() {
           snd.play().catch(() => setIsAiSpeaking(false));
         }
         if (d.question_count) setQuestionCount(d.question_count);
+      } else if (d.type === "audio_only") {
+        if (d.audio_base64 && !isVoiceMuted) {
+          if (currentAudioRef.current) currentAudioRef.current.pause();
+          const snd = new Audio("data:audio/mp3;base64," + d.audio_base64);
+          currentAudioRef.current = snd;
+          setIsAiSpeaking(true);
+          snd.onended = () => setIsAiSpeaking(false);
+          snd.play().catch(() => setIsAiSpeaking(false));
+        }
       } else if (d.type === "evaluation_complete") {
         setEvaluationPayload(d.payload);
       } else if (d.type === "live_scores") {
@@ -261,6 +270,7 @@ export default function Home() {
     wsRef.current.send(JSON.stringify({ type: "message", content: inputValue }));
     setInputValue("");
   };
+
 
   const handleEnd = () => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
