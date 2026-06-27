@@ -201,7 +201,9 @@ CRITICAL EVALUATION RUBRIC:
 3. Strict Mathematical Averages: If you ask 5 questions and they only answer 1 well, their final score should mathematically be around 20/100, NOT 80/100.
 4. Penalize Buzzwords: If the candidate uses buzzwords without explaining the underlying mechanism, deduct points heavily.
 5. Base Zero: Assume the candidate starts at 0 points. They must earn points through detailed, technically accurate answers. Do NOT start from 100 and deduct.
-6. Recommendation: If the overall average is below 60, recommend "No Hire". If between 60 and 85, recommend "Hire". Above 85 is "Strong Hire".
+6. Actionable Feedback: Provide deep, hyper-specific feedback on what they need to study next to pass this exact role.
+7. Anti-404 URLs Rule: DO NOT hallucinate URLs in recommended_resources. Only provide links to highly authoritative, permanent official domains (e.g., https://react.dev, https://docs.python.org, https://aws.amazon.com/architecture). Do NOT link to specific blog posts, medium articles, or sub-pages that might be 404. If unsure, just provide the search term as the URL.
+8. Recommendation: If the overall average is below 60, recommend "No Hire". If between 60 and 85, recommend "Hire". Above 85 is "Strong Hire".
 
 The candidate triggered {cheat_signals} tab-switch (cheat) signals during the interview.
 

@@ -45,9 +45,9 @@ async def fetch_domain_context(session_id: str, job_title: str, interview_type: 
         level_str = "entry level and basic" if is_junior else "advanced scenario based"
         
         queries = [
-            f"Advanced technical requirements, core tech stack, and modern tools for {job_title}",
-            f"Real-world system design and architecture challenges for {job_title}",
-            f"Deep technical interview scenarios and edge cases for {job_title}"
+            f"latest real-world {job_title} interview questions asked at top tech companies 2024",
+            f"advanced system design and architecture scenarios for {job_title} interviews",
+            f"deep technical problem-solving and debugging questions for {job_title}"
         ]
         
         results = await asyncio.gather(
