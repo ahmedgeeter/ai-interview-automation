@@ -39,11 +39,11 @@ export default function FinalScorecard({ payload, jobTitle }: FinalScorecardProp
   }
 
   const radarData = [
-    { subject: t("architecture"), score: payload.technical_depth || 0 },
-    { subject: t("code_quality"), score: payload.code_quality || payload.architecture || 0 },
-    { subject: t("problem_solving"), score: payload.problem_solving || 0 },
-    { subject: t("communication"), score: payload.communication || 85 },
-    { subject: t("integrity"), score: payload.integrity || 100 },
+    { subject: t("architecture"), score: payload.technical_depth ?? 0 },
+    { subject: t("code_quality"), score: payload.code_quality ?? payload.architecture ?? 0 },
+    { subject: t("problem_solving"), score: payload.problem_solving ?? 0 },
+    { subject: t("communication"), score: payload.communication ?? 85 },
+    { subject: t("integrity"), score: payload.integrity ?? 100 },
   ];
 
   const overallScore = Math.round(radarData.reduce((a, c) => a + c.score, 0) / radarData.length);

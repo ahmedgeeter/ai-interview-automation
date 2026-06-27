@@ -223,7 +223,7 @@ Transcript:
                 "problem_solving": 0,
                 "architecture": 0,
                 "communication": 0,
-                "integrity": max(0, 100 - (cheat_signals * 20)),
+                "integrity": 0,
                 "key_strengths": ["لا يوجد أداء لتقييمه" if is_ar else "No performance to evaluate"],
                 "key_weaknesses": ["لم يجب على الأسئلة التقنية" if is_ar else "Did not answer the technical questions", "تهرب من المقابلة" if is_ar else "Abandoned or skipped the interview"],
                 "red_flags": ["لم يقدم المرشح أي إجابات فعلية لتقييم مستواه." if is_ar else "Candidate provided no substantive answers."],
