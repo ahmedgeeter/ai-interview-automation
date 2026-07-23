@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+pydantic
+langchain
+langgraph
+langchain_groq
+langchain_google_genai
+langchain_community
+PyPDF2
+python-docx
+edge-tts
+duckduckgo-search
+python-multipart
+langgraph-sdk
+aegra-cli
+redis
+asyncpg
