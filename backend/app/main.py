@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import Depends
 
 from app.db.database import get_db
-from app.db.models import Session
+from app.db.models import Session, TokenUsage
 from app.services.tts_service import stream_audio_from_text
 from app.workers.assessor import evaluate_candidate
 
@@ -255,12 +255,14 @@ async def generate_warning_audio(text: str, language: str) -> str:
     return base64.b64encode(audio_data).decode('utf-8')
 
 @app.websocket("/ws/{session_id}")
-async def websocket_endpoint(websocket: WebSocket, session_id: str):
+async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSession = Depends(get_db)):
     await websocket.accept()
     if not client:
         await websocket.send_json({"type": "error", "message": "Aegra client not initialized"})
         await websocket.close()
         return
+        
+    session_totals = {"prompt": 0, "completion": 0, "latency_sum": 0, "turns": 0}
         
     try:
         try:
@@ -317,6 +319,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             # Send telemetry
             telemetry = new_state.get("telemetry", {})
             if telemetry:
+                session_totals["prompt"] += telemetry.get("prompt_tokens", 0)
+                session_totals["completion"] += telemetry.get("completion_tokens", 0)
+                session_totals["latency_sum"] += telemetry.get("latency_ms", 0)
+                session_totals["turns"] += 1
+                
                 await websocket.send_json({
                     "type": "telemetry",
                     "prompt_tokens": telemetry.get("prompt_tokens", 0),
@@ -381,8 +388,14 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 # Decoupled Evaluation via Celery worker
                 evaluate_candidate.delay(session_id, job_title, [m.dict() if hasattr(m, 'dict') else m for m in messages])
                 break # Close loop when done
+            else:
                 telemetry = new_state.get("telemetry", {})
                 if telemetry:
+                    session_totals["prompt"] += telemetry.get("prompt_tokens", 0)
+                    session_totals["completion"] += telemetry.get("completion_tokens", 0)
+                    session_totals["latency_sum"] += telemetry.get("latency_ms", 0)
+                    session_totals["turns"] += 1
+                    
                     await websocket.send_json({
                         "type": "telemetry",
                         "prompt_tokens": telemetry.get("prompt_tokens", 0),
@@ -396,6 +409,19 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                             
     except WebSocketDisconnect:
         print(f"Client disconnected for session {session_id}")
+        
+        # Save TokenUsage to Postgres
+        if session_totals["turns"] > 0:
+            avg_latency = session_totals["latency_sum"] / session_totals["turns"]
+            token_usage = TokenUsage(
+                session_id=session_id,
+                prompt_tokens=session_totals["prompt"],
+                completion_tokens=session_totals["completion"],
+                latency_ms=avg_latency
+            )
+            db.add(token_usage)
+            await db.commit()
+            
         # Trigger evaluation on unexpected disconnect if we have messages
         if 'current_values' in locals() and current_values.get("messages"):
             evaluate_candidate.delay(
