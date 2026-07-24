@@ -17,6 +17,7 @@ from fastapi import Depends
 
 from app.db.database import get_db
 from app.db.models import Session
+from app.services.tts_service import stream_audio_from_text
 
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_community.tools import DuckDuckGoSearchRun
@@ -243,19 +244,14 @@ async def send_live_eval(websocket, messages, job_title):
         except:
             pass
 
-async def generate_tts_base64(text: str, language: str) -> str:
-    try:
-        import edge_tts
-        voice = "ar-EG-ShakirNeural" if language == "ar" else "en-US-AndrewMultilingualNeural"
-        communicate = edge_tts.Communicate(text, voice, rate="+15%")
-        audio_data = b""
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                audio_data += chunk["data"]
-        return base64.b64encode(audio_data).decode('utf-8')
-    except Exception as e:
-        print(f"TTS Error: {e}")
-        return ""
+async def generate_warning_audio(text: str, language: str) -> str:
+    async def single_chunk():
+        yield text
+    
+    audio_data = b""
+    async for chunk in stream_audio_from_text(single_chunk(), language):
+        audio_data += chunk
+    return base64.b64encode(audio_data).decode('utf-8')
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
@@ -275,36 +271,56 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             
         current_values = state_resp["values"]
         
+        # Helper to process LangGraph stream and audio
+        async def process_agent_stream(graph_input):
+            language = current_values.get("language", "en")
+            
+            async def token_generator():
+                current_text = ""
+                async for chunk in client.runs.stream(
+                    thread_id=session_id,
+                    assistant_id=assistant_id,
+                    input=graph_input,
+                    stream_mode="messages"
+                ):
+                    event = chunk.event if hasattr(chunk, "event") else chunk.get("event")
+                    data = chunk.data if hasattr(chunk, "data") else chunk.get("data", [])
+                        
+                    if event == "messages/partial":
+                        for msg in data:
+                            msg_type = msg.get("type") if isinstance(msg, dict) else getattr(msg, "type", "")
+                            if msg_type == "ai":
+                                content = msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", "")
+                                if isinstance(content, str) and len(content) > len(current_text):
+                                    delta = content[len(current_text):]
+                                    current_text = content
+                                    await websocket.send_json({"type": "text_delta", "delta": delta})
+                                    yield delta
+
+            # Stream audio chunks directly to frontend
+            audio_stream = stream_audio_from_text(token_generator(), language)
+            async for audio_chunk in audio_stream:
+                if audio_chunk:
+                    await websocket.send_json({
+                        "type": "audio_chunk",
+                        "audio_base64": base64.b64encode(audio_chunk).decode("utf-8")
+                    })
+                    
+            state_resp = await client.threads.get_state(session_id)
+            return state_resp["values"]
+
         # We manually trigger the interviewer node for the first question
         if not current_values.get("messages"):
-            async for chunk in client.runs.stream(
-                thread_id=session_id,
-                assistant_id=assistant_id,
-                input=None,
-                stream_mode="values"
-            ):
-                pass
-                
-            state_resp = await client.threads.get_state(session_id)
-            result_state = state_resp["values"]
+            new_state = await process_agent_stream(None)
             
-            messages = result_state.get("messages", [])
-            if messages:
-                last_msg = messages[-1]
-                last_ai_message = last_msg.get("content", "") if isinstance(last_msg, dict) else last_msg.content
-                
+            # Send telemetry
+            telemetry = new_state.get("telemetry", {})
+            if telemetry:
                 await websocket.send_json({
-                    "type": "message",
-                    "content": last_ai_message,
-                    "question_count": result_state.get("question_count", 0),
-                    "telemetry": result_state.get("telemetry", {})
-                })
-                
-                language = result_state.get("language", "en")
-                audio_b64 = await generate_tts_base64(last_ai_message, language)
-                await websocket.send_json({
-                    "type": "audio_only",
-                    "audio_base64": audio_b64
+                    "type": "telemetry",
+                    "prompt_tokens": telemetry.get("prompt_tokens", 0),
+                    "completion_tokens": telemetry.get("completion_tokens", 0),
+                    "latency_ms": telemetry.get("latency_ms", 0)
                 })
 
         while True:
@@ -330,7 +346,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 
                 language = current_state.get("language", "en")
                 warning_text = "يرجى الانتباه، لقد تم رصد تبديل للنافذة. نرجو الحفاظ على التركيز في المقابلة." if language == "ar" else "Please remain focused on the interview window. Tab switching has been detected and recorded."
-                audio_b64 = await generate_tts_base64(warning_text, language)
+                audio_b64 = await generate_warning_audio(warning_text, language)
                 await websocket.send_json({
                     "type": "message",
                     "content": warning_text,
@@ -346,17 +362,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             elif msg_type == "message":
                 graph_input["messages"] = [{"type": "human", "content": content}]
 
-            # Invoke Aegra graph asynchronously
-            async for chunk in client.runs.stream(
-                thread_id=session_id,
-                assistant_id=assistant_id,
-                input=graph_input,
-                stream_mode="values"
-            ):
-                pass
-                
-            state_resp = await client.threads.get_state(session_id)
-            new_state = state_resp["values"]
+            # Invoke Aegra graph asynchronously and stream output
+            new_state = await process_agent_stream(graph_input)
             
             if new_state.get("evaluation_payload"):
                 await websocket.send_json({
@@ -365,29 +372,18 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     "payload": new_state["evaluation_payload"]
                 })
             else:
-                messages = new_state.get("messages", [])
-                if messages:
-                    last_msg = messages[-1]
-                    last_msg_role = last_msg.get("type") if isinstance(last_msg, dict) else last_msg.type
-                    last_msg_content = last_msg.get("content") if isinstance(last_msg, dict) else last_msg.content
+                telemetry = new_state.get("telemetry", {})
+                if telemetry:
+                    await websocket.send_json({
+                        "type": "telemetry",
+                        "prompt_tokens": telemetry.get("prompt_tokens", 0),
+                        "completion_tokens": telemetry.get("completion_tokens", 0),
+                        "latency_ms": telemetry.get("latency_ms", 0)
+                    })
                     
-                    if last_msg_role == "ai":
-                        await websocket.send_json({
-                            "type": "message",
-                            "content": last_msg_content,
-                            "question_count": new_state.get("question_count", 0),
-                            "telemetry": new_state.get("telemetry", {})
-                        })
-                        
-                        language = new_state.get("language", "en")
-                        audio_b64 = await generate_tts_base64(last_msg_content, language)
-                        await websocket.send_json({
-                            "type": "audio_only",
-                            "audio_base64": audio_b64
-                        })
-                        
-                        if new_state.get("question_count", 0) > 1:
-                            asyncio.create_task(send_live_eval(websocket, messages, new_state.get("job_title", "")))
+                messages = new_state.get("messages", [])
+                if messages and new_state.get("question_count", 0) > 1:
+                    asyncio.create_task(send_live_eval(websocket, messages, new_state.get("job_title", "")))
                             
     except WebSocketDisconnect:
         print(f"Client disconnected for session {session_id}")
