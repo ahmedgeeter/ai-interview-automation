@@ -11,6 +11,8 @@ from langchain_community.tools import DuckDuckGoSearchRun
 from app.graph.state import InterviewState
 from dotenv import load_dotenv
 from langfuse.callback import CallbackHandler
+import asyncio
+from app.services.research_service import fetch_interview_rubric
 
 load_dotenv()
 
@@ -24,6 +26,21 @@ primary_evaluator_llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.
 # Initialize the Fallback Gemini LLM (Line of Defense)
 fallback_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7)
 fallback_evaluator_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1)
+
+async def research_role_node(state: InterviewState):
+    """
+    Runs once at the beginning of the interview to fetch a dynamic, role-specific rubric.
+    """
+    if state.get("is_research_done"):
+        return {}
+        
+    job_title = state.get("job_title", "Software Engineer")
+    rubric = await asyncio.to_thread(fetch_interview_rubric, job_title)
+    
+    return {
+        "interview_context": rubric,
+        "is_research_done": True
+    }
 
 def interviewer_node(state: InterviewState):
     """
@@ -74,6 +91,10 @@ def interviewer_node(state: InterviewState):
     
     if language == "ar":
         system_prompt += "\nCRITICAL LANGUAGE INSTRUCTION: You MUST conduct this entire interview STRICTLY in Arabic using standard Arabic letters. UNDER NO CIRCUMSTANCES may you output French, Russian, Spanish, or any language other than Arabic. You will be heavily penalized if you generate random foreign words (e.g., 'données', 'против'). Do not use English unless referring to specific coding syntax.\n"
+
+    interview_context = state.get("interview_context")
+    if interview_context and interview_type != "hr":
+        system_prompt += f"\nCRITICAL RUBRIC: You are an expert technical interviewer. Use the following dynamically fetched questions and answers as your primary rubric. Do not ask all questions at once. Ask them sequentially, listen to the candidate, and subtly compare their answer to the expected answer in the rubric:\n{interview_context}\n"
 
     if is_junior:
         system_prompt += "This is a JUNIOR role. Do NOT ask for complex mathematical equations, deep internal memory architectures, or system-level kernel details unless the user brings them up. Focus heavily on core concepts, fundamental usage, syntax, and basic practical problem-solving. Make the questions approachable but still technical.\n"
