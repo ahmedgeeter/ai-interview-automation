@@ -132,14 +132,12 @@ export default function Home() {
         setSessionId(data.session_id);
         setIsBooting(false);
         setSessionStarted(true);
-        if (limitMode === "time") {
-          setTimeLeft(limitValue * 60);
-        }
-        connectWebSocket(data.session_id);
+        // Redirect to new route instead of loading inline
+        window.location.href = `/interview/${data.session_id}`;
       }
     } catch {
-      setBootLogs(prev => [...prev, t("boot_fail")]);
-      setTimeout(() => setIsBooting(false), 2000);
+        setBootLogs(prev => [...prev, t("boot_fail")]);
+        setTimeout(() => setIsBooting(false), 2000);
     }
   };
 
@@ -517,7 +515,10 @@ export default function Home() {
                   {t("continue")} →
                 </button>
               ) : (
-                <button onClick={startSession} disabled={interviewMode === "cv" && !cvFile}
+                <button onClick={() => {
+                  const sessionId = "generated-uuid";
+                  window.location.href = `/interview/${sessionId}`;
+                }} disabled={interviewMode === "cv" && !cvFile}
                   className="bg-slate-900 dark:bg-stone-200 hover:bg-slate-800 dark:hover:bg-stone-300 text-white dark:text-stone-900 px-8 py-2.5 rounded-md text-sm font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 shadow-sm">
                   {t("execute")}
                 </button>
@@ -529,262 +530,8 @@ export default function Home() {
     );
   }
 
-  // =================== INTERVIEW ROOM ===================
-  const isRtl = locale === "ar";
-
-  return (
-    <div className="flex h-screen w-full bg-slate-50 dark:bg-stone-950 noise-bg text-slate-800 dark:text-stone-300 font-[family-name:var(--font-inter)] overflow-hidden" dir={isRtl ? "rtl" : "ltr"}>
-
-      {/* LEFT: Transcript */}
-      <div className="flex-1 flex flex-col relative">
-
-        {/* Header */}
-        <header className="h-12 border-b border-slate-200 dark:border-stone-800/40 flex items-center justify-between px-5 shrink-0 bg-white/50 dark:bg-stone-950/50 backdrop-blur-md">
-          <div className="flex items-center gap-2.5">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? "bg-emerald-500" : "bg-red-500"}`} />
-            <span className="text-[11px] font-semibold text-slate-500 dark:text-stone-500">{isConnected ? t("uplink_on") : t("uplink_off")}</span>
-            {isAiSpeaking && <span className="text-[10px] text-slate-900 dark:text-stone-300 font-bold animate-pulse ms-3">● {t("voice_agent_active")}</span>}
-            {/* Limit Indicator */}
-            <div className="hidden sm:flex items-center gap-3 ms-4 ps-4 border-s border-slate-200 dark:border-stone-800">
-              {limitMode === "time" && timeLeft !== null ? (
-                <>
-                  <Activity className={`w-3.5 h-3.5 ${timeLeft < 60 ? 'text-red-500 animate-pulse' : 'text-slate-400 dark:text-stone-500'}`} />
-                  <div className="flex flex-col gap-0.5 w-24">
-                    <div className="flex justify-between items-end">
-                      <span className="text-[8px] font-black text-slate-400 dark:text-stone-500 uppercase tracking-widest">TIMER</span>
-                      <span className={`text-[9px] font-mono font-bold ${timeLeft < 60 ? 'text-red-500' : 'text-slate-600 dark:text-stone-400'}`}>
-                        {Math.floor(timeLeft / 60).toString().padStart(2, '0')}:{(timeLeft % 60).toString().padStart(2, '0')}
-                      </span>
-                    </div>
-                    <div className="h-1 w-full bg-slate-200 dark:bg-stone-800 rounded-full overflow-hidden">
-                      <div className={`h-full transition-all duration-1000 ease-linear ${timeLeft < 60 ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${Math.max(0, (timeLeft / (limitValue * 60)) * 100)}%` }} />
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <span className="text-[8px] font-black text-slate-400 dark:text-stone-500 uppercase tracking-widest">QUESTIONS</span>
-                  <span className="text-[10px] font-mono font-bold text-slate-600 dark:text-stone-400">{questionCount} / {limitValue}</span>
-                </div>
-              )}
-            </div>
-
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={toggleTheme} className="flex items-center justify-center w-6 h-6 rounded border border-transparent hover:border-slate-200 dark:hover:border-stone-800 text-slate-400 dark:text-stone-500 transition-colors">
-              {theme === "dark" ? <Moon className="w-3 h-3" /> : theme === "light" ? <Sun className="w-3 h-3" /> : <MonitorIcon className="w-3 h-3" />}
-            </button>
-            <button onClick={toggleLanguage} className="text-[11px] font-semibold text-slate-500 dark:text-stone-500 hover:text-slate-900 dark:hover:text-stone-200 transition-colors px-2 py-1 rounded border border-transparent hover:border-slate-200 dark:hover:border-stone-800">
-              {locale === "en" ? "AR" : "EN"}
-            </button>
-            {/* Voice Language Dropdown (No Emoji) */}
-            <div className="relative">
-              <button onClick={() => setShowVoiceLangMenu(!showVoiceLangMenu)} className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 dark:text-stone-400 hover:text-slate-900 dark:hover:text-stone-200 transition-colors px-2 py-1 rounded border border-slate-200 dark:border-stone-800 bg-white dark:bg-stone-900/50">
-                <Languages className="w-3.5 h-3.5" />
-                {voiceLang === "en" ? "EN" : "AR"}
-                <ChevronDown className="w-3 h-3" />
-              </button>
-              {showVoiceLangMenu && (
-                <div className="absolute top-full mt-1 end-0 bg-white dark:bg-stone-900 border border-slate-200 dark:border-stone-800 rounded-md shadow-xl z-50 min-w-[120px] overflow-hidden">
-                  <button onClick={() => changeVoiceLang("en")} className={`w-full text-start px-4 py-2 text-xs font-semibold flex items-center gap-2 transition-colors ${voiceLang === "en" ? "bg-slate-100 dark:bg-stone-800 text-slate-900 dark:text-stone-200" : "text-slate-500 dark:text-stone-400 hover:bg-slate-50 dark:hover:bg-stone-800/50"}`}>
-                    English
-                  </button>
-                  <button onClick={() => changeVoiceLang("ar")} className={`w-full text-start px-4 py-2 text-xs font-semibold flex items-center gap-2 transition-colors ${voiceLang === "ar" ? "bg-slate-100 dark:bg-stone-800 text-slate-900 dark:text-stone-200" : "text-slate-500 dark:text-stone-400 hover:bg-slate-50 dark:hover:bg-stone-800/50"}`}>
-                    عربي
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </header>
-
-        {/* Messages */}
-        <main className="flex-1 overflow-y-auto hide-scrollbar px-6 py-8 space-y-8 pb-32 scroll-smooth">
-          {messages.map((msg, i) => (
-            <div key={i} className="animate-fade-up" style={{ animationDelay: "0s" }}>
-              {msg.role === "ai" && (
-                <div className="max-w-2xl">
-                  <div className="flex items-center gap-2.5 mb-1.5">
-                    <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-stone-800 border border-slate-200 dark:border-stone-700 flex items-center justify-center shadow-sm overflow-hidden shrink-0">
-                      <img src="/dog.png" alt="Agent" className="w-6 h-6 object-contain" />
-                    </div>
-                    <span className="text-[11px] font-bold text-slate-900 dark:text-stone-200">{t("agent")}</span>
-                    <span className="text-[10px] font-mono text-slate-400 dark:text-stone-600">{msg.time}</span>
-                  </div>
-                  <p className="text-[15px] text-slate-700 dark:text-stone-300 leading-relaxed font-medium" dir="auto">
-                    <TypewriterText text={msg.content} />
-                  </p>
-                </div>
-              )}
-              {msg.role === "user" && (
-                <div className="max-w-2xl ms-6 border-s-2 border-slate-200 dark:border-stone-800 ps-5">
-                  <div className="flex items-center gap-2.5 mb-1.5">
-                    <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-stone-800 border border-slate-200 dark:border-stone-700 flex items-center justify-center shadow-sm overflow-hidden shrink-0">
-                      <img src="/user.png" alt="User" className="w-5 h-5 object-contain opacity-70" />
-                    </div>
-                    <span className="text-[11px] font-bold text-slate-500 dark:text-stone-400">{t("candidate")}</span>
-                    <span className="text-[10px] font-mono text-slate-400 dark:text-stone-600">{msg.time}</span>
-                  </div>
-                  <p className="text-sm text-slate-600 dark:text-stone-400 leading-relaxed" dir="auto">{msg.content}</p>
-                </div>
-              )}
-              {msg.role === "system" && (
-                <div className="max-w-2xl bg-red-50 dark:bg-red-950/15 border border-red-200 dark:border-red-900/40 rounded-md p-3.5">
-                  <div className="flex items-center gap-2 mb-1">
-                    <AlertTriangle className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />
-                    <span className="text-[10px] font-bold text-red-600 dark:text-red-400">{t("sys_override")}</span>
-                  </div>
-                  <p className="text-xs text-red-700 dark:text-red-300 font-medium" dir="auto">{msg.content}</p>
-                </div>
-              )}
-            </div>
-          ))}
-          {isTyping && (
-            <div className="flex items-center gap-2 animate-fade-up">
-              <span className="text-[10px] font-bold text-slate-400 dark:text-stone-600">{t("processing")}</span>
-              <span className="flex gap-1">{[0,1,2].map(i => <span key={i} className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-stone-700 animate-pulse" style={{ animationDelay: `${i*0.15}s` }}/>)}</span>
-            </div>
-          )}
-          <div ref={chatEndRef} className="h-4" />
-        </main>
-
-        {/* Input Bar */}
-        <div className="absolute bottom-0 inset-x-0 p-4 bg-gradient-to-t from-slate-50 via-slate-50/95 dark:from-stone-950 dark:via-stone-950/95 to-transparent">
-          <div className={`flex items-end bg-white dark:bg-stone-900/80 border rounded-md transition-all shadow-sm ${isListening ? "border-slate-400 dark:border-stone-500" : "border-slate-200 dark:border-stone-800 focus-within:border-slate-400 dark:focus-within:border-stone-600"}`}>
-            <textarea 
-              value={inputValue} 
-              onChange={e => {
-                setInputValue(e.target.value);
-                e.target.style.height = 'auto';
-                e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
-              }} 
-              dir="auto"
-              rows={1}
-              onKeyDown={e => { 
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
-                  e.currentTarget.style.height = 'auto';
-                }
-              }}
-              placeholder={isListening ? t("dictation_active") : t("input_placeholder")}
-              className="flex-1 bg-transparent py-3.5 px-5 text-sm text-slate-900 dark:text-stone-50 focus:outline-none placeholder:text-slate-400 dark:placeholder:text-stone-600 resize-none overflow-y-auto" />
-            <div className="flex items-center gap-1 pe-3 pb-2.5">
-              <button onClick={toggleListening} className={`p-2 rounded-md transition-colors ${isListening ? "text-slate-900 dark:text-stone-200 bg-slate-100 dark:bg-stone-800" : "text-slate-400 dark:text-stone-500 hover:text-slate-900 dark:hover:text-stone-200"}`}>
-                {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-              </button>
-              <button onClick={handleSend} className="p-2 rounded-md text-slate-400 dark:text-stone-500 hover:text-slate-900 dark:hover:text-stone-200 transition-colors">
-                <Send className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* RIGHT: Controls Panel */}
-      <div className="hidden lg:flex w-72 bg-white dark:bg-stone-900/20 flex-col border-s border-slate-200 dark:border-stone-800/40">
-
-        {/* Session Info */}
-        <div className="p-5 border-b border-slate-200 dark:border-stone-800/40">
-          <div className="text-xs font-bold text-slate-900 dark:text-stone-200 mb-0.5">{jobTitle}</div>
-          <div className="text-[10px] text-slate-500 dark:text-stone-500 font-mono">{sessionId.substring(0, 8).toUpperCase()}</div>
-        </div>
-
-        {/* Audio Visualizer */}
-        <div className="p-5 border-b border-slate-200 dark:border-stone-800/40 flex flex-col items-center gap-4">
-          <div className={`w-20 h-20 rounded-full border-2 flex items-center justify-center relative ${isAiSpeaking ? "border-slate-900 dark:border-stone-400" : "border-slate-200 dark:border-stone-800"}`}>
-            {isAiSpeaking && <div className="absolute inset-0 rounded-full border-2 border-slate-900 dark:border-stone-400 animate-pulse-ring" />}
-            <Volume2 className={`w-6 h-6 ${isAiSpeaking ? "text-slate-900 dark:text-stone-300" : "text-slate-300 dark:text-stone-700"}`} />
-          </div>
-          <span className="text-[10px] font-bold text-slate-400 dark:text-stone-600 uppercase">
-            {isAiSpeaking ? (voiceLang === "ar" ? "يتحدث..." : "Speaking...") : (voiceLang === "ar" ? "صامت" : "Silent")}
-          </span>
-        </div>
-
-        {/* SYSTEM INSPECTOR */}
-        <div className="p-5 border-b border-slate-200 dark:border-stone-800/40">
-          <h3 className="text-[10px] font-bold text-slate-400 dark:text-stone-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-            <Activity className="w-3.5 h-3.5 text-emerald-500" />
-            {locale === "ar" ? "مراقب النظام" : "System Inspector"}
-          </h3>
-          <div className="grid grid-cols-2 gap-3 mb-3">
-            <div className="bg-slate-50 dark:bg-stone-950/50 rounded-md p-2.5 border border-slate-200 dark:border-stone-800">
-              <div className="text-[9px] text-slate-400 dark:text-stone-500 font-bold uppercase mb-1">Prompt Tokens</div>
-              <div className="text-sm font-mono text-slate-700 dark:text-stone-300">+{telemetry.prompt}</div>
-              <div className="text-[9px] text-slate-400 dark:text-stone-500 mt-1 flex justify-between"><span>Total:</span> <span className="font-bold">{telemetry.totalPrompt}</span></div>
-            </div>
-            <div className="bg-slate-50 dark:bg-stone-950/50 rounded-md p-2.5 border border-slate-200 dark:border-stone-800">
-              <div className="text-[9px] text-slate-400 dark:text-stone-500 font-bold uppercase mb-1">Completion Tokens</div>
-              <div className="text-sm font-mono text-emerald-600 dark:text-emerald-400">+{telemetry.completion}</div>
-              <div className="text-[9px] text-slate-400 dark:text-stone-500 mt-1 flex justify-between"><span>Total:</span> <span className="font-bold">{telemetry.totalCompletion}</span></div>
-            </div>
-          </div>
-          <div className="bg-slate-50 dark:bg-stone-950/50 rounded-md p-2.5 border border-slate-200 dark:border-stone-800 flex justify-between items-center">
-            <div className="text-[9px] text-slate-400 dark:text-stone-500 font-bold uppercase">Latency (TTFB)</div>
-            <div className={`text-xs font-mono font-bold ${telemetry.latency > 2000 ? 'text-red-500' : 'text-emerald-500'}`}>{telemetry.latency}ms</div>
-          </div>
-        </div>
-
-        {/* LIVE SCORES */}
-        <div className="p-5 border-b border-slate-200 dark:border-stone-800/40 flex-1 overflow-y-auto">
-          <h3 className="text-[10px] font-bold text-slate-400 dark:text-stone-500 uppercase tracking-wider mb-4">{locale === "ar" ? "التقييم اللحظي" : "Live Metrics"}</h3>
-          {liveScores ? (
-            <div className="space-y-4">
-              {[
-                { label: locale === "ar" ? "العمق التقني" : "Technical", val: liveScores.technical },
-                { label: locale === "ar" ? "حل المشكلات" : "Problem Solving", val: liveScores.problem_solving },
-                { label: locale === "ar" ? "التواصل" : "Communication", val: liveScores.communication },
-              ].map((m, i) => (
-                <div key={i}>
-                  <div className="flex justify-between text-[10px] font-semibold text-slate-600 dark:text-stone-400 mb-1.5">
-                    <span>{m.label}</span>
-                    <span className="text-slate-900 dark:text-stone-200">{m.val}%</span>
-                  </div>
-                  <div className="h-1.5 w-full bg-slate-100 dark:bg-stone-800 rounded-full overflow-hidden" dir="ltr">
-                    <div className="h-full bg-slate-400 dark:bg-stone-500 rounded-full transition-all duration-1000" style={{ width: `${m.val}%` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-xs text-slate-400 dark:text-stone-600 text-center py-4 font-medium">
-              {locale === "ar" ? "في انتظار البيانات..." : "Awaiting data..."}
-            </div>
-          )}
-        </div>
-
-        {/* Actions */}
-        <div className="p-5 space-y-2">
-          <button onClick={() => { setIsVoiceMuted(!isVoiceMuted); if (!isVoiceMuted && currentAudioRef.current) { currentAudioRef.current.pause(); setIsAiSpeaking(false); } }}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-md text-xs font-semibold transition-colors ${isVoiceMuted ? "bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/40" : "bg-white dark:bg-stone-900/50 text-slate-600 dark:text-stone-400 border border-slate-200 dark:border-stone-800 hover:text-slate-900 dark:hover:text-stone-200"}`}>
-            {isVoiceMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-            {isVoiceMuted ? t("agent_muted") : t("mute_agent")}
-          </button>
-          <button onClick={handleEnd}
-            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-md text-xs font-semibold bg-white dark:bg-stone-900/50 text-slate-600 dark:text-stone-400 border border-slate-200 dark:border-stone-800 hover:text-red-600 dark:hover:text-red-400 transition-colors">
-            <Square className="w-4 h-4" />
-            {t("end_session")}
-          </button>
-        </div>
-
-        {/* Progress */}
-        <div className="mt-auto p-5 border-t border-slate-200 dark:border-stone-800/40 bg-slate-50 dark:bg-transparent">
-          <div className="flex justify-between text-[10px] font-bold text-slate-400 dark:text-stone-500 mb-2">
-            <span>{t("interview_progress")}</span>
-            <span className="text-slate-900 dark:text-stone-300">
-              {limitMode === "time" && timeLeft !== null 
-                ? `${Math.floor(timeLeft / 60)}:${(timeLeft % 60).toString().padStart(2, '0')}` 
-                : `${questionCount}/${limitValue}`}
-            </span>
-          </div>
-          <div className="h-1.5 w-full bg-slate-200 dark:bg-stone-800 rounded-full overflow-hidden" dir="ltr">
-            <div className="h-full bg-slate-900 dark:bg-stone-400 rounded-full transition-all duration-1000" 
-                 style={{ width: `${limitMode === "time" && timeLeft !== null ? Math.max(0, (timeLeft / (limitValue * 60)) * 100) : Math.min(100, Math.round((questionCount / limitValue) * 100))}%` }} />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  // =================== INTERVIEW ROOM (Migrated to /interview/[sessionId]) ===================
+  return null;
 }
 
 function MonitorIcon(props: any) {
