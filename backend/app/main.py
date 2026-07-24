@@ -18,6 +18,7 @@ from fastapi import Depends
 from app.db.database import get_db
 from app.db.models import Session
 from app.services.tts_service import stream_audio_from_text
+from app.workers.assessor import evaluate_candidate
 
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_community.tools import DuckDuckGoSearchRun
@@ -365,13 +366,21 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             # Invoke Aegra graph asynchronously and stream output
             new_state = await process_agent_stream(graph_input)
             
-            if new_state.get("evaluation_payload"):
+            # Check if interview is over based on max questions
+            is_over = new_state.get("question_count", 0) > new_state.get("max_questions", 5)
+            
+            if is_over and not new_state.get("evaluation_payload"):
+                messages = new_state.get("messages", [])
+                job_title = new_state.get("job_title", "")
+                
                 await websocket.send_json({
                     "type": "evaluation_complete",
-                    "content": "The interview has concluded. Generating scorecard...",
-                    "payload": new_state["evaluation_payload"]
+                    "content": "The interview has concluded. Generating scorecard asynchronously..."
                 })
-            else:
+                
+                # Decoupled Evaluation via Celery worker
+                evaluate_candidate.delay(session_id, job_title, [m.dict() if hasattr(m, 'dict') else m for m in messages])
+                break # Close loop when done
                 telemetry = new_state.get("telemetry", {})
                 if telemetry:
                     await websocket.send_json({
@@ -387,6 +396,13 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                             
     except WebSocketDisconnect:
         print(f"Client disconnected for session {session_id}")
+        # Trigger evaluation on unexpected disconnect if we have messages
+        if 'current_values' in locals() and current_values.get("messages"):
+            evaluate_candidate.delay(
+                session_id, 
+                current_values.get("job_title", ""), 
+                [m.dict() if hasattr(m, 'dict') else m for m in current_values.get("messages", [])]
+            )
     except Exception as e:
         import traceback
         traceback.print_exc()
