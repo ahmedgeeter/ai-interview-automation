@@ -12,6 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import PyPDF2
 from docx import Document
+from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import Depends
+
+from app.db.database import get_db
+from app.db.models import Session
 
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_community.tools import DuckDuckGoSearchRun
@@ -140,12 +145,17 @@ def extract_text_from_file(filename: str, content: bytes) -> str:
     return text
 
 @app.post("/api/start-session")
-async def start_session(req: StartSessionRequest, background_tasks: BackgroundTasks):
+async def start_session(req: StartSessionRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     if not client:
         return {"error": "Aegra client not initialized"}
         
     thread = await client.threads.create()
     session_id = thread["thread_id"]
+    
+    # Store session in our relational DB
+    db_session = Session(id=session_id, job_role=req.job_title, status="in_progress")
+    db.add(db_session)
+    await db.commit()
     
     await client.threads.update_state(
         thread_id=session_id,
@@ -175,7 +185,8 @@ async def start_session_cv(
     interview_type: str = Form("technical"),
     language: str = Form("en"),
     max_questions: int = Form(5),
-    cv_file: UploadFile = File(...)
+    cv_file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db)
 ):
     if not client:
         return {"error": "Aegra client not initialized"}
@@ -184,6 +195,11 @@ async def start_session_cv(
     session_id = thread["thread_id"]
     content = await cv_file.read()
     cv_text = extract_text_from_file(cv_file.filename, content)
+    
+    # Store session in our relational DB
+    db_session = Session(id=session_id, job_role=job_title, status="in_progress")
+    db.add(db_session)
+    await db.commit()
     
     await client.threads.update_state(
         thread_id=session_id,
