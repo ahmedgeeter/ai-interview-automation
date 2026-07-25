@@ -2,11 +2,13 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Mic, MicOff, Square, Volume2, VolumeX, Briefcase, FileText, UploadCloud, Activity, AlertTriangle, Globe, ChevronDown, Send, Languages, Moon, Sun } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import FinalScorecard from "@/components/FinalScorecard";
 
 export default function Home() {
+  const router = useRouter();
   const [setupStep, setSetupStep] = useState(1);
   const [interviewMode, setInterviewMode] = useState<"standard" | "cv">("standard");
   const [jobTitle, setJobTitle] = useState("Senior AI Engineer");
@@ -133,7 +135,7 @@ export default function Home() {
         setIsBooting(false);
         setSessionStarted(true);
         // Redirect to new route instead of loading inline
-        window.location.href = `/interview/${data.session_id}`;
+        router.push(`/interview/${data.session_id}`);
       }
     } catch {
         setBootLogs(prev => [...prev, t("boot_fail")]);
@@ -515,10 +517,7 @@ export default function Home() {
                   {t("continue")} →
                 </button>
               ) : (
-                <button onClick={() => {
-                  const sessionId = "generated-uuid";
-                  window.location.href = `/interview/${sessionId}`;
-                }} disabled={interviewMode === "cv" && !cvFile}
+                <button onClick={startSession} disabled={interviewMode === "cv" && !cvFile}
                   className="bg-slate-900 dark:bg-stone-200 hover:bg-slate-800 dark:hover:bg-stone-300 text-white dark:text-stone-900 px-8 py-2.5 rounded-md text-sm font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 shadow-sm">
                   {t("execute")}
                 </button>

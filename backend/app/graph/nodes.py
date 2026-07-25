@@ -10,22 +10,22 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_community.tools import DuckDuckGoSearchRun
 from app.graph.state import InterviewState
 from dotenv import load_dotenv
-from langfuse.callback import CallbackHandler
+# from langfuse.callback import CallbackHandler
 import asyncio
 from app.services.research_service import fetch_interview_rubric
 
 load_dotenv()
 
 # Initialize Langfuse Callback
-langfuse_handler = CallbackHandler()
+# langfuse_handler = CallbackHandler()
 
 # Initialize the Primary Groq LLM
 primary_llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.7)
 primary_evaluator_llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.1)
 
 # Initialize the Fallback Gemini LLM (Line of Defense)
-fallback_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7)
-fallback_evaluator_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1)
+fallback_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
+fallback_evaluator_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
 
 async def research_role_node(state: InterviewState):
     """
@@ -128,7 +128,7 @@ def interviewer_node(state: InterviewState):
     
     try:
         start_time = time.time()
-        response = primary_llm.invoke(full_messages, config={"callbacks": [langfuse_handler]})
+        response = primary_llm.invoke(full_messages)
         latency_ms = int((time.time() - start_time) * 1000)
         
         token_usage = response.response_metadata.get("token_usage", {})
@@ -143,7 +143,7 @@ def interviewer_node(state: InterviewState):
         print(f"Groq API Error: {e}. Falling back to Gemini...")
         try:
             start_time = time.time()
-            response = fallback_llm.invoke(full_messages, config={"callbacks": [langfuse_handler]})
+            response = fallback_llm.invoke(full_messages)
             latency_ms = int((time.time() - start_time) * 1000)
             telemetry = {
                 "latency_ms": latency_ms,
