@@ -8,11 +8,12 @@ interface JellyButtonProps {
   isListening: boolean;
   messages: Message[];
   isTyping: boolean;
+  streamingText: string;
   t: any;
   toggleListening: () => void;
 }
 
-export function JellyButton({ isAiSpeaking, isListening, messages, isTyping, t, toggleListening }: JellyButtonProps) {
+export function JellyButton({ isAiSpeaking, isListening, messages, isTyping, streamingText, t, toggleListening }: JellyButtonProps) {
   const aiMessages = messages.filter(m => m.role === 'ai');
   const lastAiMessage = aiMessages.length > 0 ? aiMessages[aiMessages.length - 1].content : "";
 
@@ -38,7 +39,11 @@ export function JellyButton({ isAiSpeaking, isListening, messages, isTyping, t, 
       </button>
       
       <div className="mt-12 text-center min-h-[80px] w-full z-10">
-        {aiMessages.length > 0 ? (
+        {streamingText ? (
+          <p className="text-lg sm:text-xl font-semibold text-slate-800 dark:text-stone-200 leading-relaxed" dir="auto">
+            {streamingText}
+          </p>
+        ) : aiMessages.length > 0 ? (
           <p className="text-lg sm:text-xl font-semibold text-slate-800 dark:text-stone-200 transition-opacity duration-300 leading-relaxed" dir="auto">
             <TypewriterText text={lastAiMessage} />
           </p>

@@ -1,47 +1,91 @@
 import os
-import aiohttp
-from typing import AsyncGenerator
+import threading
+import base64
+import wave
+import io
+import asyncio
+import dashscope
+from dashscope.audio.qwen_tts_realtime import QwenTtsRealtime, QwenTtsRealtimeCallback, AudioFormat
 
-async def generate_full_audio_from_text(text: str, language: str = "en") -> str:
-    """Call ElevenLabs REST API to generate the full audio and return as base64."""
-    api_key = os.getenv("ELEVENLABS_API_KEY", "")
-    
-    if not api_key or not text.strip():
-        print("Warning: ELEVENLABS_API_KEY is not set or text is empty. Falling back to empty audio.")
+class MemoryCallback(QwenTtsRealtimeCallback):
+    def __init__(self):
+        super().__init__()
+        self.complete_event = threading.Event()
+        self.audio_bytes = bytearray()
+        self.error = None
+        
+    def on_event(self, response: dict) -> None:
+        try:
+            type = response['type']
+            if type == 'response.audio.delta':
+                self.audio_bytes.extend(base64.b64decode(response['delta']))
+            elif type == 'session.finished':
+                self.complete_event.set()
+        except Exception as e:
+            self.error = str(e)
+            
+    def on_close(self, close_status_code, close_msg) -> None:
+        self.complete_event.set()
+
+def _sync_generate_qwen_tts(text: str, voice: str) -> str:
+    dashscope.api_key = os.getenv("DASHSCOPE_API_KEY", "")
+    if not dashscope.api_key:
+        print("Warning: DASHSCOPE_API_KEY not set")
         return ""
         
-    voice_id = "21m00Tcm4TlvDq8ikWAM" # Rachel
-    
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-    
-    headers = {
-        "Accept": "audio/mpeg",
-        "Content-Type": "application/json",
-        "xi-api-key": api_key
-    }
-    
-    data = {
-        "text": text,
-        "model_id": "eleven_multilingual_v2",
-        "voice_settings": {
-            "stability": 0.5,
-            "similarity_boost": 0.8
-        }
-    }
+    callback = MemoryCallback()
+    qwen_tts_realtime = QwenTtsRealtime(
+        model='qwen3-tts-flash-realtime',
+        callback=callback,
+        # Int'l endpoint; use wss://dashscope.aliyuncs.com/api-ws/v1/realtime for mainland China
+        url='wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime'
+    )
     
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=data, headers=headers) as response:
-                if response.status == 200:
-                    audio_bytes = await response.read()
-                    import base64
-                    return base64.b64encode(audio_bytes).decode("utf-8")
-                else:
-                    error_text = await response.text()
-                    print(f"ElevenLabs REST API error {response.status}: {error_text}")
-                    return ""
+        qwen_tts_realtime.connect()
+        qwen_tts_realtime.update_session(
+            voice=voice,
+            response_format=AudioFormat.PCM_24000HZ_MONO_16BIT,
+            mode='server_commit'
+        )
+        qwen_tts_realtime.append_text(text)
+        qwen_tts_realtime.finish()
+        
+        # Wait for completion
+        callback.complete_event.wait(timeout=30)
+        
+        if callback.error or not callback.audio_bytes:
+            print(f"Qwen TTS error: {callback.error}")
+            return ""
+            
+        # Wrap PCM in WAV
+        wav_io = io.BytesIO()
+        with wave.open(wav_io, 'wb') as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2) # 16-bit
+            wav_file.setframerate(24000)
+            wav_file.writeframes(callback.audio_bytes)
+            
+        wav_bytes = wav_io.getvalue()
+        return base64.b64encode(wav_bytes).decode("utf-8")
+        
     except Exception as e:
         import traceback
         traceback.print_exc()
-        print(f"ElevenLabs connection error: {e}")
         return ""
+    finally:
+        try:
+            qwen_tts_realtime.close()
+        except:
+            pass
+
+async def generate_full_audio_from_text(text: str, language: str = "en") -> str:
+    """Call Alibaba Cloud Qwen Real-Time TTS to generate full audio and return as base64."""
+    if not text.strip():
+        return ""
+    
+    voice = "Cherry"
+    if language == "ar":
+        voice = "longanlingxi" 
+    
+    return await asyncio.to_thread(_sync_generate_qwen_tts, text, voice)

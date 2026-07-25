@@ -31,7 +31,7 @@ export default function InterviewPage() {
 
   const {
     messages, isConnected, isTyping, isAiSpeaking, isListening,
-    questionCount, liveScores, telemetry,
+    questionCount, liveScores, telemetry, streamingText,
     sendMessage, sendEndInterview, changeLanguage,
     toggleListening, stopListening, stopCurrentAudio, setIsAiSpeaking
   } = useInterview(
@@ -87,6 +87,7 @@ export default function InterviewPage() {
             isListening={isListening}
             messages={messages}
             isTyping={isTyping}
+            streamingText={streamingText}
             t={t}
             toggleListening={toggleListening}
           />

@@ -19,3 +19,4 @@ sqlalchemy
 langfuse
 celery
 websockets
+dashscope

@@ -16,6 +16,7 @@ export function useInterview(sessionId: string, isVoiceMuted: boolean, voiceLang
   const [isTyping, setIsTyping] = useState(false);
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [streamingText, setStreamingText] = useState("");
   const [questionCount, setQuestionCount] = useState(0);
   const [liveScores, setLiveScores] = useState<LiveScores | null>(null);
   const [telemetry, setTelemetry] = useState<Telemetry>({prompt: 0, completion: 0, latency: 0, totalPrompt: 0, totalCompletion: 0});
@@ -88,7 +89,10 @@ export function useInterview(sessionId: string, isVoiceMuted: boolean, voiceLang
     ws.onmessage = (event) => {
       setIsTyping(false);
       const d = JSON.parse(event.data);
-      if (d.type === "message") {
+      if (d.type === "text_delta") {
+        setStreamingText(prev => prev + d.delta);
+      } else if (d.type === "message") {
+        setStreamingText(""); // Clear streaming text when full message arrives
         playUISound(d.is_warning ? "alert" : "receive");
         setMessages(prev => [...prev, { role: d.is_warning ? "system" : "ai", content: d.content, time: now(), isWarning: d.is_warning }]);
         
@@ -137,6 +141,7 @@ export function useInterview(sessionId: string, isVoiceMuted: boolean, voiceLang
     playUISound("send");
     setMessages(prev => [...prev, { role: "user", content, time: now() }]);
     setIsTyping(true);
+    setStreamingText(""); // Clear any old streaming text
     wsRef.current.send(JSON.stringify({ type: "message", content }));
   };
   const sendEndInterview = () => {
@@ -152,7 +157,7 @@ export function useInterview(sessionId: string, isVoiceMuted: boolean, voiceLang
 
   return {
     messages, isConnected, isTyping, isAiSpeaking, isListening,
-    questionCount, liveScores, telemetry,
+    questionCount, liveScores, telemetry, streamingText,
     sendMessage, sendEndInterview, changeLanguage,
     toggleListening, stopListening, stopCurrentAudio, setIsAiSpeaking
   };
