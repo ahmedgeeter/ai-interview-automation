@@ -1,6 +1,7 @@
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.messages import HumanMessage
-from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
+import os
 import asyncio
 from app.models import state
 def fetch_interview_rubric(job_title: str) -> str:
@@ -22,7 +23,12 @@ Search Results:
 
         # We can use a lightweight or fast model here if latency is a concern, 
         # but llama-3.3-70b-versatile is fine since this runs once before the interview.
-        llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.2)
+        llm = ChatOpenAI(
+            model="qwen-turbo-latest", 
+            temperature=0.2,
+            api_key=os.getenv("DASHSCOPE_API_KEY", "dummy_key"),
+            base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+        )
         response = llm.invoke([HumanMessage(content=prompt)])
         
         return response.content
@@ -47,7 +53,12 @@ Do not yap, just output the rubric formatted cleanly.
 Search Results:
 {search_results}"""
 
-        llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.2)
+        llm = ChatOpenAI(
+            model="qwen-turbo-latest", 
+            temperature=0.2,
+            api_key=os.getenv("DASHSCOPE_API_KEY", "dummy_key"),
+            base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+        )
         response = await llm.ainvoke([HumanMessage(content=prompt)])
         
         if session_id in state.pending_sessions:

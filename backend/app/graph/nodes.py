@@ -3,7 +3,7 @@ import json
 import random
 import uuid
 import time
-from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
@@ -19,9 +19,19 @@ load_dotenv()
 # Initialize Langfuse Callback
 # langfuse_handler = CallbackHandler()
 
-# Initialize the Primary Groq LLM
-primary_llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.7)
-primary_evaluator_llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.1)
+# Initialize the Primary Qwen LLM via Dashscope
+primary_llm = ChatOpenAI(
+    model="qwen-turbo-latest", 
+    temperature=0.7,
+    api_key=os.getenv("DASHSCOPE_API_KEY", "dummy_key"),
+    base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+)
+primary_evaluator_llm = ChatOpenAI(
+    model="qwen-turbo-latest", 
+    temperature=0.1,
+    api_key=os.getenv("DASHSCOPE_API_KEY", "dummy_key"),
+    base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+)
 
 # Initialize the Fallback Gemini LLM (Line of Defense)
 fallback_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
@@ -137,10 +147,10 @@ def interviewer_node(state: InterviewState):
             "prompt_tokens": token_usage.get("prompt_tokens", 0),
             "completion_tokens": token_usage.get("completion_tokens", 0),
             "total_tokens": token_usage.get("total_tokens", 0),
-            "model_name": response.response_metadata.get("model_name", "llama-3.3-70b-versatile")
+            "model_name": response.response_metadata.get("model_name", "qwen-turbo-latest")
         }
     except Exception as e:
-        print(f"Groq API Error: {e}. Falling back to Gemini...")
+        print(f"Qwen API Error: {e}. Falling back to Gemini...")
         try:
             start_time = time.time()
             response = fallback_llm.invoke(full_messages)
@@ -265,7 +275,7 @@ Transcript:
     try:
         response = primary_evaluator_llm.with_structured_output(method="json_mode").invoke([HumanMessage(content=full_prompt)])
     except Exception as e:
-        print(f"Groq Evaluator Error: {e}. Falling back to Gemini...")
+        print(f"Qwen Evaluator Error: {e}. Falling back to Gemini...")
         try:
             fallback_res = fallback_evaluator_llm.invoke([HumanMessage(content=full_prompt)])
             # Gemini typically wraps json in ```json ... ``` blocks

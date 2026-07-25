@@ -2,14 +2,19 @@ import json
 import asyncio
 from typing import Dict, Any, Tuple
 from langchain_core.messages import HumanMessage
-from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 import os
 
 from app.models import state
 from app.services.tts_service import generate_full_audio_from_text
 
-live_evaluator = ChatGroq(model="llama-3.3-70b-versatile", temperature=0)
+live_evaluator = ChatOpenAI(
+    model="qwen-turbo-latest", 
+    temperature=0,
+    api_key=os.getenv("DASHSCOPE_API_KEY", "dummy_key"),
+    base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+)
 fallback_live_evaluator = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
 
 async def generate_live_scores(messages, job_title):
@@ -29,7 +34,7 @@ async def generate_live_scores(messages, job_title):
         try:
             res = await asyncio.to_thread(live_evaluator.invoke, [HumanMessage(content=prompt)])
         except Exception as e:
-            print(f"Groq Live eval error: {e}. Falling back to Gemini...")
+            print(f"Qwen Live eval error: {e}. Falling back to Gemini...")
             res = await asyncio.to_thread(fallback_live_evaluator.invoke, [HumanMessage(content=prompt)])
             
         content = res.content
