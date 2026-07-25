@@ -15,7 +15,7 @@ interface InspectorPanelProps {
   limitValue: number;
   timeLeft: number | null;
   questionCount: number;
-  t: (key: string) => string;
+  t: any;
   setIsVoiceMuted: (val: boolean) => void;
   stopCurrentAudio: () => void;
   setIsAiSpeaking: (val: boolean) => void;

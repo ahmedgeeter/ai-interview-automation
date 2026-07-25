@@ -19,7 +19,6 @@ export default function InterviewPage() {
   const { theme, setTheme } = useTheme();
 
   const [inputValue, setInputValue] = useState("");
-  const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [isVoiceMuted, setIsVoiceMuted] = useState(false);
   const [showVoiceLangMenu, setShowVoiceLangMenu] = useState(false);
   

@@ -8,7 +8,7 @@ interface JellyButtonProps {
   isListening: boolean;
   messages: Message[];
   isTyping: boolean;
-  t: (key: string) => string;
+  t: any;
   toggleListening: () => void;
 }
 
