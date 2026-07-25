@@ -6,7 +6,7 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
-from app.db.models import Evaluation, Session
+from app.models.models import Evaluation, Session
 
 # Using sync engine for celery task since it's easier in celery context
 POSTGRES_URL_SYNC = os.getenv("POSTGRES_URL", "postgresql://aegra:aegra@postgres:5432/aegra")
