@@ -20,9 +20,39 @@ async def send_live_eval(websocket: WebSocket, messages: list, job_title: str):
         except:
             pass
 
+@router.websocket("/dashboard")
+async def dashboard_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    state.dashboard_connections.append(websocket)
+    try:
+        # Send initial state
+        await websocket.send_json({
+            "type": "dashboard_init",
+            "stats": state.global_stats
+        })
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        state.dashboard_connections.remove(websocket)
+    except Exception:
+        if websocket in state.dashboard_connections:
+            state.dashboard_connections.remove(websocket)
+
+async def broadcast_dashboard_update():
+    for d_ws in state.dashboard_connections:
+        try:
+            await d_ws.send_json({
+                "type": "dashboard_update",
+                "stats": state.global_stats
+            })
+        except:
+            pass
+
 @router.websocket("/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSession = Depends(get_db)):
     await websocket.accept()
+    state.global_stats["active_sessions"] += 1
+    asyncio.create_task(broadcast_dashboard_update())
     if not state.client:
         await websocket.send_json({"type": "error", "message": "Aegra client not initialized"})
         await websocket.close()
@@ -55,6 +85,17 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
                 session_totals["completion"] += telemetry.get("completion_tokens", 0)
                 session_totals["latency_sum"] += telemetry.get("latency_ms", 0)
                 session_totals["turns"] += 1
+                
+                # Update global stats
+                state.global_stats["total_prompt_tokens"] += telemetry.get("prompt_tokens", 0)
+                state.global_stats["total_completion_tokens"] += telemetry.get("completion_tokens", 0)
+                
+                # Assume standard Groq Llama-3-70b cost: $0.59 / 1M prompt, $0.79 / 1M completion
+                prompt_cost = (telemetry.get("prompt_tokens", 0) / 1_000_000) * 0.59
+                completion_cost = (telemetry.get("completion_tokens", 0) / 1_000_000) * 0.79
+                state.global_stats["total_cost"] += (prompt_cost + completion_cost)
+                
+                asyncio.create_task(broadcast_dashboard_update())
                 
                 await websocket.send_json({
                     "type": "telemetry",
@@ -128,6 +169,16 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
                     session_totals["latency_sum"] += telemetry.get("latency_ms", 0)
                     session_totals["turns"] += 1
                     
+                    # Update global stats
+                    state.global_stats["total_prompt_tokens"] += telemetry.get("prompt_tokens", 0)
+                    state.global_stats["total_completion_tokens"] += telemetry.get("completion_tokens", 0)
+                    
+                    prompt_cost = (telemetry.get("prompt_tokens", 0) / 1_000_000) * 0.59
+                    completion_cost = (telemetry.get("completion_tokens", 0) / 1_000_000) * 0.79
+                    state.global_stats["total_cost"] += (prompt_cost + completion_cost)
+                    
+                    asyncio.create_task(broadcast_dashboard_update())
+                    
                     await websocket.send_json({
                         "type": "telemetry",
                         "prompt_tokens": telemetry.get("prompt_tokens", 0),
@@ -158,6 +209,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
                             
     except WebSocketDisconnect:
         print(f"Client disconnected for session {session_id}")
+        state.global_stats["active_sessions"] = max(0, state.global_stats["active_sessions"] - 1)
+        asyncio.create_task(broadcast_dashboard_update())
         
         # Save TokenUsage to Postgres
         if session_totals["turns"] > 0:
