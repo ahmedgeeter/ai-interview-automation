@@ -4,6 +4,10 @@ from sqlalchemy.orm import sessionmaker
 
 # Get Postgres URL from environment
 POSTGRES_URL = os.getenv("POSTGRES_URL", "postgresql+asyncpg://aegra:aegra@localhost:5432/aegra")
+if POSTGRES_URL.startswith("postgres://"):
+    POSTGRES_URL = POSTGRES_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+elif POSTGRES_URL.startswith("postgresql://"):
+    POSTGRES_URL = POSTGRES_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 engine = create_async_engine(
     POSTGRES_URL,
