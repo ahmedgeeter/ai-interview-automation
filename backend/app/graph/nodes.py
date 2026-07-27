@@ -33,7 +33,7 @@ fallback_evaluator_llm = ChatGroq(
 )
 
 
-def interviewer_node(state: InterviewState):
+async def interviewer_node(state: InterviewState):
     """
     Drives the technical assessment.
     Formulates highly contextual, deeper follow-up questions.
@@ -171,7 +171,7 @@ def interviewer_node(state: InterviewState):
             m_type = getattr(m, "type", "unknown")
             print(f"{m_type}: {m.content}")
         print("-----------------------------------------------")
-        response = primary_llm.invoke(sanitized_messages)
+        response = await primary_llm.ainvoke(sanitized_messages)
         
         # Check for Chinese Hallucination (Just in case Groq is the fallback or Gemini slips up)
         import re
@@ -193,7 +193,7 @@ def interviewer_node(state: InterviewState):
         print(f"Primary LLM Error: {e}. Falling back to Groq...")
         try:
             start_time = time.time()
-            response = fallback_llm.invoke(sanitized_messages)
+            response = await fallback_llm.ainvoke(sanitized_messages)
             
             if re.search(r'[\u4e00-\u9fff]', response.content):
                 # Clean up if Groq hallucinates on fallback
@@ -227,7 +227,7 @@ def interviewer_node(state: InterviewState):
     }
 
 
-def guardrail_node(state: InterviewState):
+async def guardrail_node(state: InterviewState):
     """
     Operates as a parallel security layer.
     Intercepts and analyzes user input prior to reaching the Interviewer Node.
@@ -252,7 +252,7 @@ def guardrail_node(state: InterviewState):
     return {}
 
 
-def evaluator_node(state: InterviewState):
+async def evaluator_node(state: InterviewState):
     """
     Executes in the background when the question limit is reached.
     Ingests the transcript and enforces JSON Mode to output a structured evaluation schema.
@@ -328,12 +328,12 @@ Transcript:
     try:
         # Gemini does not natively support .with_structured_output in the same way Groq does sometimes, 
         # but LangChain handles it for Gemini.
-        response_obj = primary_evaluator_llm.with_structured_output(method="json_mode").invoke([HumanMessage(content=full_prompt)])
+        response_obj = await primary_evaluator_llm.with_structured_output(method="json_mode").ainvoke([HumanMessage(content=full_prompt)])
         response = response_obj
     except Exception as e:
         print(f"Primary Evaluator Error: {e}. Falling back to Groq...")
         try:
-            fallback_res = fallback_evaluator_llm.invoke([HumanMessage(content=full_prompt)])
+            fallback_res = await fallback_evaluator_llm.ainvoke([HumanMessage(content=full_prompt)])
             # Try parsing Groq's raw output
             content = fallback_res.content
             if "```json" in content:
