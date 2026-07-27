@@ -4,7 +4,7 @@ import httpx
 import os
 import re
 
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVEN_API_KEY")
 ELEVENLABS_API_KEY_FALLBACK = os.getenv("ELEVENLABS_API_KEY_FALLBACK")
 
 # Voice map: language -> ElevenLabs Voice ID (using pre-made free voices)

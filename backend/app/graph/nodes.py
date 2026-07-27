@@ -209,7 +209,7 @@ async def interviewer_node(state: InterviewState):
             }
         except Exception as e2:
             print(f"Gemini API Error: {e2}")
-            error_msg = "عذراً، حدث خطأ مؤقت في الاتصال بالخادم. هل يمكنك تكرار ما قلته؟" if language == "ar" else "I apologize, but I encountered a temporary network issue. Could you please repeat that?"
+            error_msg = f"[DEBUG API ERROR] Gemini failed: {e} | Groq failed: {e2}. Please check your API Keys in Render Environment Variables!"
             response = AIMessage(content=error_msg)
             telemetry = {
                 "latency_ms": 0,
