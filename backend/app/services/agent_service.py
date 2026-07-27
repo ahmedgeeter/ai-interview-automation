@@ -14,7 +14,7 @@ live_evaluator = ChatGroq(
     temperature=0,
     api_key=os.getenv("GROQ_API_KEY", "dummy_key")
 )
-fallback_live_evaluator = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
+fallback_live_evaluator = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
 
 async def generate_live_scores(messages, job_title) -> Tuple[Dict[str, Any] | None, Dict[str, int]]:
     try:
