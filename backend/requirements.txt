@@ -11,13 +11,10 @@ python-docx
 edge-tts
 duckduckgo-search
 python-multipart
-langgraph-sdk
-aegra-cli
-redis
+langgraph-checkpoint
 asyncpg
 sqlalchemy
 langfuse
-celery
 websockets
 dashscope
 langchain-openai

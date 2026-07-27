@@ -9,6 +9,7 @@ from app.models import state
 from app.services.agent_service import process_agent_stream, generate_warning_audio, generate_live_scores
 from app.services.tts_service import generate_full_audio_from_text
 from app.workers.assessor import evaluate_candidate
+from app.graph.workflow import graph_app
 
 router = APIRouter()
 
@@ -68,22 +69,20 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
     await websocket.accept()
     state.global_stats["active_sessions"] += 1
     asyncio.create_task(broadcast_dashboard_update())
-    if not state.client:
-        await websocket.send_json({"type": "error", "message": "Aegra client not initialized"})
-        await websocket.close()
-        return
+    if False: # Removed state.client check since we are running natively
+        pass
         
     session_totals = {"prompt": 0, "completion": 0, "latency_sum": 0, "turns": 0, "voice": 0}
         
     try:
         try:
-            state_resp = await state.client.threads.get_state(session_id)
+            state_resp = await graph_app.aget_state({"configurable": {"thread_id": session_id}})
         except Exception:
             await websocket.send_json({"type": "error", "message": "Invalid session_id"})
             await websocket.close()
             return
             
-        current_values = state_resp["values"]
+        current_values = state_resp.values
         initial_config = state.pending_sessions.get(session_id, {})
 
         async def send_delta(delta: str):
@@ -168,13 +167,13 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
                 msg_type = "message"
                 content = data
 
-            state_resp = await state.client.threads.get_state(session_id)
-            current_state = state_resp["values"]
+            state_resp = await graph_app.aget_state({"configurable": {"thread_id": session_id}})
+            current_state = state_resp.values
             
             # Removed continue so it falls through to graph execution
             if msg_type == "tab_switch":
                 new_cheat = current_state.get("cheat_signals", 0) + 1
-                await state.client.threads.update_state(session_id, values={"cheat_signals": new_cheat})
+                await graph_app.aupdate_state({"configurable": {"thread_id": session_id}}, {"cheat_signals": new_cheat})
                 
                 language = current_state.get("language", "en")
                 warning_text = "يرجى الانتباه، لقد تم رصد تبديل للنافذة. نرجو الحفاظ على التركيز في المقابلة." if language == "ar" else "Please remain focused on the interview window. Tab switching has been detected and recorded."
@@ -200,7 +199,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
             # Prepare input for the graph
             graph_input = {}
             if msg_type == "change_language":
-                await state.client.threads.update_state(session_id, values={"language": content})
+                await graph_app.aupdate_state({"configurable": {"thread_id": session_id}}, {"language": content})
                 lang_name = "English" if content == "en" else "Egyptian Arabic (Ammiya)" if content == "ar-eg" else "Formal Standard Arabic (Fusha)"
                 graph_input["messages"] = [{"type": "human", "content": f"[SYSTEM EVENT: The user has dynamically switched the interface language to {lang_name}. Please briefly acknowledge this change in {lang_name}, and then restate your PREVIOUS question exactly, but translated into {lang_name}. Do NOT evaluate an answer, just translate and re-ask the last question.]"}]
             elif msg_type == "end_interview":
@@ -223,7 +222,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
                 if not new_state.get("evaluation_payload"):
                     messages = new_state.get("messages", [])
                     job_title = new_state.get("job_title", "")
-                    evaluate_candidate.delay(session_id, job_title, [m.dict() if hasattr(m, 'dict') else m for m in messages])
+                    asyncio.create_task(evaluate_candidate(session_id, job_title, [m.dict() if hasattr(m, 'dict') else m for m in messages]))
                     
                 break # Close loop when done
             else:
@@ -302,11 +301,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
             
         # Trigger evaluation on unexpected disconnect if we have messages
         if 'current_values' in locals() and current_values.get("messages"):
-            evaluate_candidate.delay(
+            asyncio.create_task(evaluate_candidate(
                 session_id, 
                 current_values.get("job_title", ""), 
                 [m.dict() if hasattr(m, 'dict') else m for m in current_values.get("messages", [])]
-            )
+            ))
     except Exception as e:
         import traceback
         traceback.print_exc()

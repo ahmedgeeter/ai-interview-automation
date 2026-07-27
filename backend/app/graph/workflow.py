@@ -1,4 +1,5 @@
 from langgraph.graph import StateGraph, END, START
+from langgraph.checkpoint.memory import MemorySaver
 from app.graph.state import InterviewState
 from app.graph.nodes import interviewer_node, guardrail_node, evaluator_node
 
@@ -50,12 +51,12 @@ def build_graph():
     # Evaluator node finishes the process entirely
     workflow.add_edge("evaluator_node", END)
     
-    # 4. Compile Graph
-    # Aegra Server automatically provides the Postgres checkpointer for state persistence
-    # based on the Thread ID, so we compile without providing a checkpointer here.
-    app = workflow.compile()
+    # 4. Compile Graph with MemorySaver for in-memory persistence
+    memory = MemorySaver()
+    app = workflow.compile(checkpointer=memory)
     
     return app
 
 # Expose the compiled graph
 graph_app = build_graph()
+
