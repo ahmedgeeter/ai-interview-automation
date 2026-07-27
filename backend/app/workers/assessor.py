@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 from app.workers.celery_app import celery_app
-from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
@@ -36,11 +36,10 @@ def evaluate_candidate(session_id: str, job_title: str, messages: list):
 
         prompt = f"Evaluate the following transcript for a {job_title} role. Output strictly JSON with keys: technical_score (0-100), communication_score (0-100), problem_solving_score (0-100), feedback (string). Transcript:\n{history}"
         
-        evaluator = ChatOpenAI(
-            model="qwen-turbo-latest", 
+        evaluator = ChatGroq(
+            model="llama-3.3-70b-versatile",
             temperature=0,
-            api_key=os.getenv("DASHSCOPE_API_KEY", "dummy_key"),
-            base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+            api_key=os.getenv("GROQ_API_KEY", "dummy_key")
         )
         res = evaluator.invoke([HumanMessage(content=prompt)])
         

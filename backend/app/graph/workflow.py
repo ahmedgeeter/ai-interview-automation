@@ -1,10 +1,8 @@
 from langgraph.graph import StateGraph, END, START
 from app.graph.state import InterviewState
-from app.graph.nodes import interviewer_node, guardrail_node, evaluator_node, research_role_node
+from app.graph.nodes import interviewer_node, guardrail_node, evaluator_node
 
 def route_start(state: InterviewState):
-    if not state.get("is_research_done"):
-        return "research_role_node"
     return "guardrail_node"
 
 def route_next_step(state: InterviewState):
@@ -23,24 +21,18 @@ def build_graph():
     workflow = StateGraph(InterviewState)
     
     # 2. Add Nodes
-    workflow.add_node("research_role_node", research_role_node)
     workflow.add_node("guardrail_node", guardrail_node)
     workflow.add_node("interviewer_node", interviewer_node)
     workflow.add_node("evaluator_node", evaluator_node)
     
     # 3. Define Edges
-    # The entry point evaluates whether to do research first or go straight to guardrail
     workflow.add_conditional_edges(
         START,
         route_start,
         {
-            "research_role_node": "research_role_node",
             "guardrail_node": "guardrail_node"
         }
     )
-    
-    # After research, go to guardrail
-    workflow.add_edge("research_role_node", "guardrail_node")
     
     # From guardrail, we route based on whether we hit the question limit
     workflow.add_conditional_edges(

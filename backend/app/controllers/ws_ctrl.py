@@ -12,11 +12,26 @@ from app.workers.assessor import evaluate_candidate
 
 router = APIRouter()
 
-async def send_live_eval(websocket: WebSocket, messages: list, job_title: str):
-    scores = await generate_live_scores(messages, job_title)
+async def send_live_eval(websocket: WebSocket, messages: list, job_title: str, session_totals: dict):
+    scores, eval_tokens = await generate_live_scores(messages, job_title)
     if scores:
         try:
             await websocket.send_json({"type": "live_scores", "scores": scores})
+        except:
+            pass
+    if eval_tokens:
+        session_totals["prompt"] += eval_tokens.get("prompt_tokens", 0)
+        session_totals["completion"] += eval_tokens.get("completion_tokens", 0)
+        state.global_stats["total_prompt_tokens"] += eval_tokens.get("prompt_tokens", 0)
+        state.global_stats["total_completion_tokens"] += eval_tokens.get("completion_tokens", 0)
+        try:
+            await websocket.send_json({
+                "type": "telemetry",
+                "prompt_tokens": eval_tokens.get("prompt_tokens", 0),
+                "completion_tokens": eval_tokens.get("completion_tokens", 0),
+                "latency_ms": 0,
+                "voice_tokens": 0
+            })
         except:
             pass
 
@@ -58,7 +73,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
         await websocket.close()
         return
         
-    session_totals = {"prompt": 0, "completion": 0, "latency_sum": 0, "turns": 0}
+    session_totals = {"prompt": 0, "completion": 0, "latency_sum": 0, "turns": 0, "voice": 0}
         
     try:
         try:
@@ -76,7 +91,17 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
 
         # We manually trigger the interviewer node for the first question
         if not current_values.get("messages") and initial_config:
-            new_state, final_text = await process_agent_stream(session_id, initial_config, send_delta)
+            # Remove empty/null values and fields not in InterviewState that cause 422
+            allowed_keys = [
+                "messages", "job_title", "persona", "domain_context", "cv_text",
+                "interview_type", "language", "telemetry", "interview_context",
+                "is_research_done", "question_count", "max_questions",
+                "evaluation_payload", "cheat_signals", "latest_cheat_detected"
+            ]
+            clean_config = {k: v for k, v in initial_config.items() if k in allowed_keys and v is not None and v != [] and v != ""}
+            lang = initial_config.get("language", "en")
+            clean_config["messages"] = [{"type": "human", "content": f"Start the interview. Ask the first question now. [LANGUAGE:{lang}]"}]
+            new_state, final_text = await process_agent_stream(session_id, clean_config, send_delta)
             
             # Send telemetry
             telemetry = new_state.get("telemetry", {})
@@ -101,8 +126,36 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
                     "type": "telemetry",
                     "prompt_tokens": telemetry.get("prompt_tokens", 0),
                     "completion_tokens": telemetry.get("completion_tokens", 0),
-                    "latency_ms": telemetry.get("latency_ms", 0)
+                    "latency_ms": telemetry.get("latency_ms", 0),
+                    "voice_tokens": 0
                 })
+
+            # Generate audio for first question
+            audio_base64 = ""
+            if final_text:
+                audio_base64, voice_tokens = await generate_full_audio_from_text(final_text, language=new_state.get("language", "en"))
+                session_totals["voice"] += voice_tokens
+                await websocket.send_json({
+                    "type": "telemetry",
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "latency_ms": 0,
+                    "voice_tokens": voice_tokens
+                })
+
+            final_messages = new_state.get("messages", [])
+            if final_messages:
+                last_msg = final_messages[-1]
+                last_msg_type = last_msg.get("type", "") if isinstance(last_msg, dict) else getattr(last_msg, "type", "")
+                last_msg_content = last_msg.get("content", "") if isinstance(last_msg, dict) else getattr(last_msg, "content", "")
+                if last_msg_type == "ai":
+                    await websocket.send_json({
+                        "type": "message",
+                        "content": last_msg_content,
+                        "question_count": new_state.get("question_count", 0),
+                        "is_warning": False,
+                        "audio_base64": audio_base64
+                    })
 
         while True:
             data = await websocket.receive_text()
@@ -118,16 +171,24 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
             state_resp = await state.client.threads.get_state(session_id)
             current_state = state_resp["values"]
             
-            if msg_type == "change_language":
-                await state.client.threads.update_state(session_id, values={"language": content})
-                continue
-            elif msg_type == "tab_switch":
+            # Removed continue so it falls through to graph execution
+            if msg_type == "tab_switch":
                 new_cheat = current_state.get("cheat_signals", 0) + 1
                 await state.client.threads.update_state(session_id, values={"cheat_signals": new_cheat})
                 
                 language = current_state.get("language", "en")
                 warning_text = "يرجى الانتباه، لقد تم رصد تبديل للنافذة. نرجو الحفاظ على التركيز في المقابلة." if language == "ar" else "Please remain focused on the interview window. Tab switching has been detected and recorded."
-                audio_b64 = await generate_warning_audio(warning_text, language)
+                audio_b64, voice_tokens = await generate_warning_audio(warning_text, language)
+                session_totals["voice"] += voice_tokens
+                
+                await websocket.send_json({
+                    "type": "telemetry",
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "latency_ms": 0,
+                    "voice_tokens": voice_tokens
+                })
+                
                 await websocket.send_json({
                     "type": "message",
                     "content": warning_text,
@@ -138,7 +199,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
                 
             # Prepare input for the graph
             graph_input = {}
-            if msg_type == "end_interview":
+            if msg_type == "change_language":
+                await state.client.threads.update_state(session_id, values={"language": content})
+                lang_name = "English" if content == "en" else "Egyptian Arabic (Ammiya)" if content == "ar-eg" else "Formal Standard Arabic (Fusha)"
+                graph_input["messages"] = [{"type": "human", "content": f"[SYSTEM EVENT: The user has dynamically switched the interface language to {lang_name}. Please briefly acknowledge this change in {lang_name}, and then restate your PREVIOUS question exactly, but translated into {lang_name}. Do NOT evaluate an answer, just translate and re-ask the last question.]"}]
+            elif msg_type == "end_interview":
                 graph_input["question_count"] = current_state.get("max_questions", 5) + 1
             elif msg_type == "message":
                 graph_input["messages"] = [{"type": "human", "content": content}]
@@ -149,17 +214,17 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
             # Check if interview is over based on max questions
             is_over = new_state.get("question_count", 0) > new_state.get("max_questions", 5)
             
-            if is_over and not new_state.get("evaluation_payload"):
-                messages = new_state.get("messages", [])
-                job_title = new_state.get("job_title", "")
-                
+            if is_over:
                 await websocket.send_json({
                     "type": "evaluation_complete",
                     "content": "The interview has concluded. Generating scorecard asynchronously..."
                 })
                 
-                # Decoupled Evaluation via Celery worker
-                evaluate_candidate.delay(session_id, job_title, [m.dict() if hasattr(m, 'dict') else m for m in messages])
+                if not new_state.get("evaluation_payload"):
+                    messages = new_state.get("messages", [])
+                    job_title = new_state.get("job_title", "")
+                    evaluate_candidate.delay(session_id, job_title, [m.dict() if hasattr(m, 'dict') else m for m in messages])
+                    
                 break # Close loop when done
             else:
                 telemetry = new_state.get("telemetry", {})
@@ -183,29 +248,40 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
                         "type": "telemetry",
                         "prompt_tokens": telemetry.get("prompt_tokens", 0),
                         "completion_tokens": telemetry.get("completion_tokens", 0),
-                        "latency_ms": telemetry.get("latency_ms", 0)
+                        "latency_ms": telemetry.get("latency_ms", 0),
+                        "voice_tokens": 0
                     })
                     
                 # Generate audio
                 audio_base64 = ""
                 if final_text:
-                    audio_base64 = await generate_full_audio_from_text(final_text, language=new_state.get("language", "en"))
+                    audio_base64, voice_tokens = await generate_full_audio_from_text(final_text, language=new_state.get("language", "en"))
+                    session_totals["voice"] += voice_tokens
+                    await websocket.send_json({
+                        "type": "telemetry",
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "latency_ms": 0,
+                        "voice_tokens": voice_tokens
+                    })
 
                 final_messages = new_state.get("messages", [])
                 if final_messages:
                     last_msg = final_messages[-1]
-                    if getattr(last_msg, "type", "") == "ai":
+                    last_msg_type = last_msg.get("type", "") if isinstance(last_msg, dict) else getattr(last_msg, "type", "")
+                    last_msg_content = last_msg.get("content", "") if isinstance(last_msg, dict) else getattr(last_msg, "content", "")
+                    if last_msg_type == "ai":
                         await websocket.send_json({
                             "type": "message",
-                            "content": last_msg.content,
+                            "content": last_msg_content,
                             "question_count": new_state.get("question_count", 0),
                             "is_warning": False,
                             "audio_base64": audio_base64
                         })
                     
                 messages = new_state.get("messages", [])
-                if messages and new_state.get("question_count", 0) > 1:
-                    asyncio.create_task(send_live_eval(websocket, messages, new_state.get("job_title", "")))
+                if msg_type == "message" and messages and new_state.get("question_count", 0) > 1:
+                    asyncio.create_task(send_live_eval(websocket, messages, new_state.get("job_title", ""), session_totals))
                             
     except WebSocketDisconnect:
         print(f"Client disconnected for session {session_id}")

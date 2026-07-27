@@ -2,22 +2,21 @@ import json
 import asyncio
 from typing import Dict, Any, Tuple
 from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
 import os
 
 from app.models import state
 from app.services.tts_service import generate_full_audio_from_text
 
-live_evaluator = ChatOpenAI(
-    model="qwen-turbo-latest", 
+live_evaluator = ChatGroq(
+    model="llama-3.3-70b-versatile",
     temperature=0,
-    api_key=os.getenv("DASHSCOPE_API_KEY", "dummy_key"),
-    base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+    api_key=os.getenv("GROQ_API_KEY", "dummy_key")
 )
 fallback_live_evaluator = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
 
-async def generate_live_scores(messages, job_title):
+async def generate_live_scores(messages, job_title) -> Tuple[Dict[str, Any] | None, Dict[str, int]]:
     try:
         history_msgs = []
         for m in messages[-3:]:
@@ -34,18 +33,25 @@ async def generate_live_scores(messages, job_title):
         try:
             res = await asyncio.to_thread(live_evaluator.invoke, [HumanMessage(content=prompt)])
         except Exception as e:
-            print(f"Qwen Live eval error: {e}. Falling back to Gemini...")
+            print(f"Groq Live eval error: {e}. Falling back to Gemini...")
             res = await asyncio.to_thread(fallback_live_evaluator.invoke, [HumanMessage(content=prompt)])
             
         content = res.content
         if "{" in content:
             content = content[content.find("{"):content.rfind("}")+1]
-        return json.loads(content)
+            
+        token_usage = res.response_metadata.get("token_usage", {})
+        tokens = {
+            "prompt_tokens": token_usage.get("prompt_tokens", 0),
+            "completion_tokens": token_usage.get("completion_tokens", 0),
+            "total_tokens": token_usage.get("total_tokens", 0),
+        }
+        return json.loads(content), tokens
     except Exception as e:
         print(f"Live eval error: {e}")
-        return None
+        return None, {}
 
-async def generate_warning_audio(text: str, language: str) -> str:
+async def generate_warning_audio(text: str, language: str) -> Tuple[str, int]:
     return await generate_full_audio_from_text(text, language)
 
 async def process_agent_stream(session_id: str, graph_input: Dict[str, Any], send_delta_func) -> Tuple[Dict[str, Any], str]:
@@ -70,11 +76,13 @@ async def process_agent_stream(session_id: str, graph_input: Dict[str, Any], sen
                     msg_type = msg.get("type") if isinstance(msg, dict) else getattr(msg, "type", "")
                     if msg_type == "ai":
                         content = msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", "")
-                        if isinstance(content, str) and len(content) > len(current_text):
-                            delta = content[len(current_text):]
-                            current_text = content
-                            await send_delta_func(delta)
-                            yield delta
+                        # Do not stream evaluation payload (JSON leakage)
+                        if isinstance(content, str) and not content.strip().startswith("{") and not content.strip().startswith("```"):
+                            if len(content) > len(current_text):
+                                delta = content[len(current_text):]
+                                current_text = content
+                                await send_delta_func(delta)
+                                yield delta
 
     final_text = ""
     async for text_delta in token_generator():

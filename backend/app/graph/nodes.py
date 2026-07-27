@@ -3,7 +3,7 @@ import json
 import random
 import uuid
 import time
-from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
@@ -12,45 +12,26 @@ from app.graph.state import InterviewState
 from dotenv import load_dotenv
 # from langfuse.callback import CallbackHandler
 import asyncio
-from app.services.research_service import fetch_interview_rubric
-
 load_dotenv()
 
 # Initialize Langfuse Callback
 # langfuse_handler = CallbackHandler()
 
-# Initialize the Primary Qwen LLM via Dashscope
-primary_llm = ChatOpenAI(
-    model="qwen-turbo-latest", 
+primary_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
+primary_evaluator_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
+
+# Initialize the Fallback Groq LLM (Line of Defense)
+fallback_llm = ChatGroq(
+    model="llama-3.3-70b-versatile",
     temperature=0.7,
-    api_key=os.getenv("DASHSCOPE_API_KEY", "dummy_key"),
-    base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+    api_key=os.getenv("GROQ_API_KEY", "dummy_key")
 )
-primary_evaluator_llm = ChatOpenAI(
-    model="qwen-turbo-latest", 
+fallback_evaluator_llm = ChatGroq(
+    model="llama-3.3-70b-versatile",
     temperature=0.1,
-    api_key=os.getenv("DASHSCOPE_API_KEY", "dummy_key"),
-    base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+    api_key=os.getenv("GROQ_API_KEY", "dummy_key")
 )
 
-# Initialize the Fallback Gemini LLM (Line of Defense)
-fallback_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
-fallback_evaluator_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
-
-async def research_role_node(state: InterviewState):
-    """
-    Runs once at the beginning of the interview to fetch a dynamic, role-specific rubric.
-    """
-    if state.get("is_research_done"):
-        return {}
-        
-    job_title = state.get("job_title", "Software Engineer")
-    rubric = await asyncio.to_thread(fetch_interview_rubric, job_title)
-    
-    return {
-        "interview_context": rubric,
-        "is_research_done": True
-    }
 
 def interviewer_node(state: InterviewState):
     """
@@ -58,11 +39,22 @@ def interviewer_node(state: InterviewState):
     Formulates highly contextual, deeper follow-up questions.
     Dynamically addresses tab-switching if detected.
     """
+    print(f"----- INSIDE NODES.PY: State is {state} -----")
     messages = state.get("messages", [])
     job_title = state.get("job_title", "Software Engineer")
+    persona = state.get("persona", "balanced")
+    interview_type = state.get("interview_type", "technical")
+    domain_context = state.get("domain_context", "")
+    language = state.get("language", "en")
+    
+    # Fallback to extract language from first message if LangGraph drops state update
+    if messages and hasattr(messages[0], "content") and "[LANGUAGE:ar-eg]" in messages[0].content:
+        language = "ar-eg"
+    elif messages and hasattr(messages[0], "content") and "[LANGUAGE:ar]" in messages[0].content:
+        language = "ar"
+    
     cheat_signals = state.get("cheat_signals", 0)
     latest_cheat = state.get("latest_cheat_detected", False)
-    domain_context = state.get("domain_context", "")
     question_count = state.get("question_count", 0)
     
     # Check for domain context from parallel background search
@@ -99,8 +91,7 @@ def interviewer_node(state: InterviewState):
     system_prompt += f"STRICT DOMAIN BOUNDARY: You MUST NOT ask generic Software Engineering questions (like what is an API, what is Git, what is Agile) unless they are highly specific to the {job_title} role. For a {job_title} role, focus EXCLUSIVELY on the core technologies, frameworks, and architecture patterns native to this specific domain.\n"
     system_prompt += "CRITICAL INSTRUCTION: You MUST ask only ONE short, highly realistic technical question. The question MUST be exactly 1 to 2 sentences maximum. Do NOT yap, do NOT provide long monologues, and do NOT use Markdown or emojis. Output ONLY plain text.\n"
     
-    if language == "ar":
-        system_prompt += "\nCRITICAL LANGUAGE INSTRUCTION: You MUST conduct this entire interview STRICTLY in Arabic using standard Arabic letters. UNDER NO CIRCUMSTANCES may you output French, Russian, Spanish, or any language other than Arabic. You will be heavily penalized if you generate random foreign words (e.g., 'données', 'против'). Do not use English unless referring to specific coding syntax.\n"
+    # Language instruction moved to the end of the prompt to prevent English context override
 
     interview_context = state.get("interview_context")
     if interview_context and interview_type != "hr":
@@ -119,7 +110,7 @@ def interviewer_node(state: InterviewState):
     
     if question_count == 0:
         session_seed = str(uuid.uuid4())
-        system_prompt += f"\nANTI-REPETITION INSTRUCTION: This is the very first question of the interview. The session seed is {session_seed}. You MUST NOT use a generic greeting. Immediately dive into a completely unique, highly specific technical scenario based on the Real-Time Role Context above. Surprise the candidate with a question they have never seen before.\n"
+        system_prompt += f"\nANTI-REPETITION INSTRUCTION: This is the very first question of the interview. The session seed is {session_seed}. You MUST NOT use a generic greeting. Immediately dive into a completely unique, highly specific technical scenario based on the Real-Time Role Context above. Surprise the candidate with a question they have never seen before. MOST IMPORTANTLY: You MUST translate this first question into the requested language (Egyptian Arabic if ar-eg, or Formal Arabic if ar) before you output it!\n"
 
     system_prompt += "\nLimit your entire response to maximum 2 sentences. Never break character."
 
@@ -129,38 +120,92 @@ def interviewer_node(state: InterviewState):
     if question_count == 2: # Zero-indexed, so this is the 3rd question
         system_prompt += "\nINTENTIONAL HALLUCINATION TRAP: In this specific question, intentionally inject a subtle but distinct technical inaccuracy into your premise (in the requested language). See if the candidate has the seniority to confidently correct you. If they correct you, praise them later. If they agree, note their lack of deep understanding."
 
+    if language == "ar-eg":
+        system_prompt += "\nCRITICAL BINDING INSTRUCTION: You MUST formulate your NEXT QUESTION STRICTLY in Egyptian Arabic (اللهجة المصرية العامية). YOU MUST USE ONLY THE ARABIC ALPHABET (حروف عربية). DO NOT output any Chinese (汉字), Russian, or other foreign characters. Use Egyptian conversational phrasing naturally. DO NOT use Formal Standard Arabic (Fusha).\n"
+        system_prompt += "ANTI-HALLUCINATION: NEVER translate technical terms (like System, Design, Performance, Database). You MUST keep technical terms in English letters. ABSOLUTELY NO CHINESE OR FOREIGN CHARACTERS. Example: write 'Performance', NEVER '性能'.\n"
+        system_prompt += "TEXT PROCESSING RULES FOR TTS (EGYPTIAN):\n"
+        system_prompt += "1. NO DIACRITICS: Do NOT output any diacritics (بدون تشكيل) in your text. Keep the text clean for the UI.\n"
+        system_prompt += "2. EGYPTIAN DIALECT SPELLING CONVENTIONS:\n"
+        system_prompt += "   - Use authentic Egyptian vocabulary ('إزيك'، 'كده'، 'عايز'، 'إيه'، 'علشان'، 'مش'، 'النهاردة').\n"
+        system_prompt += "   - Spell out numbers phonetically as spoken in Egyptian Arabic (e.g., write 'خمسة' instead of '5', 'عشرين' instead of '20').\n"
+    elif language == "ar":
+        system_prompt += "\nCRITICAL BINDING INSTRUCTION: You MUST formulate your NEXT QUESTION STRICTLY in Formal Standard Arabic (اللغة العربية الفصحى). YOU MUST USE ONLY THE ARABIC ALPHABET (حروف عربية). DO NOT USE FRANCO-ARABIC OR ENGLISH LETTERS FOR ARABIC WORDS. DO NOT output any Chinese, Russian, or other foreign characters. UNDER NO CIRCUMSTANCES may you output French, Russian, Spanish, or any language other than Arabic. Even though your context is in English, you MUST translate and speak in Formal Standard Arabic. Do not use English unless referring to specific coding syntax.\n"
+        system_prompt += "TEXT PROCESSING RULES FOR TTS:\n- Ensure correct grammatical endings (الإعراب) and add diacritics (التشكيل) where necessary to prevent mispronunciation by the text-to-speech engine.\n"
+    else:
+        system_prompt += "\nCRITICAL BINDING INSTRUCTION: You MUST formulate your NEXT QUESTION STRICTLY in English.\n"
+
     # Prepend the system prompt to the conversation history
     full_messages = [SystemMessage(content=system_prompt)] + messages
     
     # Gemini requires at least one HumanMessage. If starting, add a silent trigger.
-    if not messages:
-        full_messages.append(HumanMessage(content="Start the interview."))
+    first_msg_content = messages[0].get("content", "") if messages and isinstance(messages[0], dict) else (getattr(messages[0], "content", "") if messages else "")
+    if not messages or (len(messages) == 1 and "Start the interview" in first_msg_content):
+        trigger_msg = "Start the interview. Ask the first question now."
+        if language == "ar-eg":
+            trigger_msg += " CRITICAL: Ask the question entirely in Egyptian Arabic (اللهجة المصرية). No foreign characters."
+        elif language == "ar":
+            trigger_msg += " CRITICAL: Ask the question entirely in Formal Standard Arabic (الفصحى). No foreign characters."
+            
+        if not messages:
+            full_messages.append(HumanMessage(content=trigger_msg))
+        else:
+            full_messages[-1] = HumanMessage(content=trigger_msg)
     
     try:
         start_time = time.time()
-        response = primary_llm.invoke(full_messages)
+        print(f"----- DEBUG LOG: language state is {language} -----")
+        print("----- DEBUG LOG: FULL MESSAGES BEING SENT -----")
+        sanitized_messages = []
+        for m in full_messages:
+            if isinstance(m, dict):
+                m_type = m.get("type", "human")
+                m_content = m.get("content", "")
+                if m_type == "ai":
+                    sanitized_messages.append(AIMessage(content=m_content))
+                else:
+                    sanitized_messages.append(HumanMessage(content=m_content))
+            else:
+                sanitized_messages.append(m)
+                
+        for m in sanitized_messages:
+            m_type = getattr(m, "type", "unknown")
+            print(f"{m_type}: {m.content}")
+        print("-----------------------------------------------")
+        response = primary_llm.invoke(sanitized_messages)
+        
+        # Check for Chinese Hallucination (Just in case Groq is the fallback or Gemini slips up)
+        import re
+        if re.search(r'[\u4e00-\u9fff]', response.content):
+            print("LLM hallucinated Chinese! Falling back to secondary...")
+            raise ValueError("Chinese hallucination detected")
+            
         latency_ms = int((time.time() - start_time) * 1000)
         
-        token_usage = response.response_metadata.get("token_usage", {})
+        token_usage = response.response_metadata.get("token_usage", {}) if hasattr(response, "response_metadata") else {}
         telemetry = {
             "latency_ms": latency_ms,
             "prompt_tokens": token_usage.get("prompt_tokens", 0),
             "completion_tokens": token_usage.get("completion_tokens", 0),
             "total_tokens": token_usage.get("total_tokens", 0),
-            "model_name": response.response_metadata.get("model_name", "qwen-turbo-latest")
+            "model_name": "gemini-2.5-flash (primary)"
         }
     except Exception as e:
-        print(f"Qwen API Error: {e}. Falling back to Gemini...")
+        print(f"Primary LLM Error: {e}. Falling back to Groq...")
         try:
             start_time = time.time()
-            response = fallback_llm.invoke(full_messages)
+            response = fallback_llm.invoke(sanitized_messages)
+            
+            if re.search(r'[\u4e00-\u9fff]', response.content):
+                # Clean up if Groq hallucinates on fallback
+                response.content = re.sub(r'[\u4e00-\u9fff]+', '', response.content)
+
             latency_ms = int((time.time() - start_time) * 1000)
             telemetry = {
                 "latency_ms": latency_ms,
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
                 "total_tokens": 0,
-                "model_name": "gemini-2.5-flash (fallback)"
+                "model_name": "llama-3.3-70b-versatile (fallback)"
             }
         except Exception as e2:
             print(f"Gemini API Error: {e2}")
@@ -195,7 +240,9 @@ def guardrail_node(state: InterviewState):
     
     # Check if the frontend injected a specific "TAB_SWITCH_DETECTED" payload
     # In practice, this might come as a special system message or formatted human message
-    if isinstance(last_message, HumanMessage) and "TAB_SWITCH_DETECTED" in last_message.content:
+    last_content = last_message.get("content", "") if isinstance(last_message, dict) else last_message.content
+    last_type = last_message.get("type", "") if isinstance(last_message, dict) else getattr(last_message, "type", "")
+    if last_type == "human" and "TAB_SWITCH_DETECTED" in last_content:
         return {
             "cheat_signals": state.get("cheat_signals", 0) + 1,
             "latest_cheat_detected": True
@@ -245,10 +292,16 @@ The candidate triggered {cheat_signals} tab-switch (cheat) signals during the in
 Transcript:
 """
     
-    transcript = "\n".join([f"{msg.type}: {msg.content}" for msg in messages if msg.type in ("human", "ai") and "TAB_SWITCH_DETECTED" not in msg.content])
+    sanitized_messages = []
+    for msg in messages:
+        msg_type = msg.get("type", "") if isinstance(msg, dict) else getattr(msg, "type", "")
+        msg_content = msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", "")
+        sanitized_messages.append({"type": msg_type, "content": msg_content})
+
+    transcript = "\n".join([f"{msg['type']}: {msg['content']}" for msg in sanitized_messages if msg['type'] in ("human", "ai") and "TAB_SWITCH_DETECTED" not in msg['content']])
     
     # Pre-flight check: Did the candidate actually answer?
-    human_messages = [msg.content for msg in messages if msg.type == "human" and "TAB_SWITCH_DETECTED" not in msg.content]
+    human_messages = [msg['content'] for msg in sanitized_messages if msg['type'] == "human" and "TAB_SWITCH_DETECTED" not in msg['content']]
     total_human_words = sum(len(m.split()) for m in human_messages)
     
     if total_human_words < 10:
@@ -273,12 +326,15 @@ Transcript:
     
     # Primary Evaluator with Fallback
     try:
-        response = primary_evaluator_llm.with_structured_output(method="json_mode").invoke([HumanMessage(content=full_prompt)])
+        # Gemini does not natively support .with_structured_output in the same way Groq does sometimes, 
+        # but LangChain handles it for Gemini.
+        response_obj = primary_evaluator_llm.with_structured_output(method="json_mode").invoke([HumanMessage(content=full_prompt)])
+        response = response_obj
     except Exception as e:
-        print(f"Qwen Evaluator Error: {e}. Falling back to Gemini...")
+        print(f"Primary Evaluator Error: {e}. Falling back to Groq...")
         try:
             fallback_res = fallback_evaluator_llm.invoke([HumanMessage(content=full_prompt)])
-            # Gemini typically wraps json in ```json ... ``` blocks
+            # Try parsing Groq's raw output
             content = fallback_res.content
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0]
@@ -286,7 +342,7 @@ Transcript:
                 content = content.split("```")[1].split("```")[0]
             response = content.strip()
         except Exception as e2:
-            print(f"Gemini Evaluator Error: {e2}")
+            print(f"Fallback Evaluator Error: {e2}")
             response = '{"error": "Evaluation failed"}'
     
     try:
