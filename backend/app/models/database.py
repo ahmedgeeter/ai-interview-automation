@@ -9,6 +9,8 @@ if POSTGRES_URL.startswith("postgres://"):
 elif POSTGRES_URL.startswith("postgresql://"):
     POSTGRES_URL = POSTGRES_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
+POSTGRES_URL = POSTGRES_URL.replace("sslmode=", "ssl=")
+
 engine = create_async_engine(
     POSTGRES_URL,
     echo=False,
