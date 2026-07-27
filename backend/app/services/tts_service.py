@@ -113,7 +113,7 @@ async def generate_full_audio_from_text(text: str, language: str = "en") -> Tupl
             
             if not audio_data:
                 print(f"[TTS] ElevenLabs returned empty audio for language={language}")
-                return "", 0
+                return await fallback_to_edge_tts(text, language)
 
             return base64.b64encode(audio_data).decode("utf-8"), len(text)
 
@@ -132,4 +132,19 @@ async def generate_full_audio_from_text(text: str, language: str = "en") -> Tupl
             except Exception as fallback_e:
                 print(f"[TTS] Fallback ElevenLabs error: {fallback_e}")
         
+        print("[TTS] ElevenLabs failed completely. Falling back to edge-tts (Free).")
+        return await fallback_to_edge_tts(text, language)
+
+async def fallback_to_edge_tts(text: str, language: str) -> Tuple[str, int]:
+    try:
+        import edge_tts
+        voice = "ar-EG-SalmaNeural" if language in ("ar", "ar-eg") else "en-US-ChristopherNeural"
+        communicate = edge_tts.Communicate(text, voice)
+        audio_data = b""
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_data += chunk["data"]
+        return base64.b64encode(audio_data).decode("utf-8"), len(text)
+    except Exception as e:
+        print(f"[TTS] edge-tts fallback also failed: {e}")
         return "", 0
