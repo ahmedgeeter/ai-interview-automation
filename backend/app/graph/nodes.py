@@ -3,6 +3,7 @@ import json
 import random
 import uuid
 import time
+import re
 from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -17,8 +18,8 @@ load_dotenv()
 # Initialize Langfuse Callback
 # langfuse_handler = CallbackHandler()
 
-primary_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.7, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
-primary_evaluator_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.1, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
+primary_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", temperature=0.7, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
+primary_evaluator_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", temperature=0.1, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
 
 # Initialize the Fallback Groq LLM (Line of Defense)
 fallback_llm = ChatGroq(
@@ -174,7 +175,6 @@ async def interviewer_node(state: InterviewState):
         response = await primary_llm.ainvoke(sanitized_messages)
         
         # Check for Chinese Hallucination (Just in case Groq is the fallback or Gemini slips up)
-        import re
         if re.search(r'[\u4e00-\u9fff]', response.content):
             print("LLM hallucinated Chinese! Falling back to secondary...")
             raise ValueError("Chinese hallucination detected")
@@ -187,7 +187,7 @@ async def interviewer_node(state: InterviewState):
             "prompt_tokens": token_usage.get("prompt_tokens", 0),
             "completion_tokens": token_usage.get("completion_tokens", 0),
             "total_tokens": token_usage.get("total_tokens", 0),
-            "model_name": "gemini-1.5-flash (primary)"
+            "model_name": "gemini-1.5-flash-latest (primary)"
         }
     except Exception as e:
         print(f"Primary LLM Error: {e}. Falling back to Groq...")
