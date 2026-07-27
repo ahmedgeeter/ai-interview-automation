@@ -10,6 +10,8 @@ from app.models import state
 from app.models.schema import StartSessionRequest
 from app.services.research_service import fetch_domain_context
 from app.services.tts_service import generate_full_audio_from_text
+from app.graph.workflow import graph_app
+import uuid
 
 router = APIRouter()
 
@@ -30,11 +32,7 @@ def extract_text_from_file(filename: str, content: bytes) -> str:
 
 @router.post("/start-session")
 async def start_session(req: StartSessionRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
-    if not state.client:
-        return {"error": "Aegra client not initialized"}
-
-    thread = await state.client.threads.create(graph_id="agent")
-    session_id = thread["thread_id"]
+    session_id = str(uuid.uuid4())
 
     # Determine effective max_questions from limit_mode
     if req.limit_mode == "time":
@@ -78,11 +76,7 @@ async def start_session_cv(
     cv_file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db)
 ):
-    if not state.client:
-        return {"error": "Aegra client not initialized"}
-
-    thread = await state.client.threads.create(graph_id="agent")
-    session_id = thread["thread_id"]
+    session_id = str(uuid.uuid4())
     content = await cv_file.read()
     cv_text = extract_text_from_file(cv_file.filename, content)
 
@@ -114,11 +108,10 @@ async def start_session_cv(
 
 @router.get("/scorecard/{session_id}")
 async def get_scorecard(session_id: str):
-    if not state.client:
-        return {"error": "Aegra client not initialized"}
     try:
-        state_resp = await state.client.threads.get_state(session_id)
-        current_state = state_resp["values"]
+        config = {"configurable": {"thread_id": session_id}}
+        state_resp = await graph_app.aget_state(config)
+        current_state = state_resp.values
         if not current_state.get("evaluation_payload"):
             return {"error": "Evaluation not completed yet", "status": "pending"}
         return current_state["evaluation_payload"]
