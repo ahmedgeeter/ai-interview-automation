@@ -47,6 +47,8 @@ export function useInterview(
   const [isListening, setIsListening] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [questionCount, setQuestionCount] = useState(0);
+  const [isWakingUpServer, setIsWakingUpServer] = useState(false);
+  const [serverAwake, setServerAwake] = useState(false);
   const [liveScores, setLiveScores] = useState<LiveScores | null>(null);
   const [telemetry, setTelemetry] = useState<Telemetry>({
     prompt: 0, completion: 0, latency: 0, totalPrompt: 0, totalCompletion: 0, voiceTokens: 0, totalVoiceTokens: 0,
@@ -211,15 +213,41 @@ export function useInterview(
     };
   }, [sessionId, now, playAudio, router]);
 
+  // Health check polling to wake up Render free instance
   useEffect(() => {
-    if (sessionId) connectWebSocket();
+    if (!sessionId || serverAwake) return;
+    
+    let isMounted = true;
+    const checkHealth = async () => {
+      setIsWakingUpServer(true);
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      try {
+        const res = await fetch(`${API_URL}/api/health`);
+        if (res.ok) {
+          if (isMounted) {
+            setServerAwake(true);
+            setIsWakingUpServer(false);
+          }
+        } else {
+          if (isMounted) setTimeout(checkHealth, 5000);
+        }
+      } catch (e) {
+        if (isMounted) setTimeout(checkHealth, 5000);
+      }
+    };
+    checkHealth();
+    return () => { isMounted = false; };
+  }, [sessionId, serverAwake]);
+
+  useEffect(() => {
+    if (sessionId && serverAwake) connectWebSocket();
     return () => {
       wsRef.current?.close();
       wsRef.current = null;
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       stopAudio();
     };
-  }, [sessionId, connectWebSocket]);
+  }, [sessionId, serverAwake, connectWebSocket]);
 
   // ─── Actions ──────────────────────────────────────────────────────────────────
   const sendMessage = useCallback(
@@ -246,7 +274,7 @@ export function useInterview(
   }, []);
 
   return {
-    messages, isConnected, isTyping, isAiSpeaking, isListening,
+    messages, isConnected, isTyping, isAiSpeaking, isListening, isWakingUpServer,
     questionCount, liveScores, telemetry, streamingText, sessionConfig, pendingAudio, setPendingAudio,
     sendMessage, sendEndInterview, changeLanguage,
     toggleListening, stopListening, stopCurrentAudio, setIsAiSpeaking, playAudio

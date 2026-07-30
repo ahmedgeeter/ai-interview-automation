@@ -146,3 +146,7 @@ async def test_voice(lang: str):
     audio_b64 = await generate_full_audio_from_text(text, lang)
     return {"audio_base64": audio_b64}
 
+@router.get("/health")
+async def health_check():
+    """Endpoint for cron jobs to keep the server awake."""
+    return {"status": "ok"}
