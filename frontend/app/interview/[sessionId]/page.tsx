@@ -141,7 +141,7 @@ export default function InterviewPage() {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const {
-    messages, isConnected, isTyping, isAiSpeaking, isListening,
+    messages, isConnected, isTyping, isAiSpeaking, isListening, isWakingUpServer,
     questionCount, liveScores, telemetry, streamingText, sessionConfig,
     pendingAudio, setPendingAudio, playAudio,
     sendMessage, sendEndInterview, changeLanguage,
@@ -349,10 +349,19 @@ export default function InterviewPage() {
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
           {messages.length === 0 && !streamingText && (
             <div className="flex flex-col items-center justify-center h-full text-center pb-20">
-              <Loader2 className="w-5 h-5 animate-spin text-slate-300 dark:text-stone-700 mb-3" />
-              <p className="text-sm font-medium text-slate-400 dark:text-stone-600">
-                {voiceLang === "ar" ? "يجهّز أول سؤال..." : "Preparing first question..."}
+              <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />
+              <p className="text-sm font-bold text-slate-700 dark:text-stone-300 mb-2">
+                {isWakingUpServer 
+                  ? (voiceLang === "ar" ? "جاري إيقاظ الذكاء الاصطناعي..." : "Waking up AI engine...")
+                  : (voiceLang === "ar" ? "يجهّز أول سؤال..." : "Preparing first question...")}
               </p>
+              {isWakingUpServer && (
+                <p className="text-xs text-slate-400 dark:text-stone-500 max-w-[250px]">
+                  {voiceLang === "ar" 
+                    ? "الخادم في وضع السكون بسبب الخطة المجانية. قد يستغرق هذا حوالي 50 ثانية، يرجى الانتظار." 
+                    : "Server is sleeping due to free tier. This may take ~50 seconds, please wait."}
+                </p>
+              )}
             </div>
           )}
           {messages.map((msg, i) => <MessageBubble key={i} msg={msg} isRtl={voiceLang.startsWith("ar")} />)}
