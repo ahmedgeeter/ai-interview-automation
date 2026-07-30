@@ -9,7 +9,7 @@ langchain_community
 PyPDF2
 python-docx
 edge-tts
-duckduckgo-search
+ddgs
 python-multipart
 langgraph-checkpoint
 asyncpg
