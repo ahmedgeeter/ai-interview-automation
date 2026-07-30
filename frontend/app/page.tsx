@@ -55,6 +55,7 @@ export default function SetupPage() {
   const startSession = async () => {
     setIsBooting(true);
     setBootLog([]);
+    let wakeUpTimer: NodeJS.Timeout | undefined;
     try {
       addLog("Initializing assessment protocol...");
       const effectiveJob = useCustomJob && customJob.trim() ? customJob.trim() : jobTitle;
@@ -63,6 +64,13 @@ export default function SetupPage() {
       addLog("Fetching interview context from web...");
 
       let res: Response;
+      
+      wakeUpTimer = setTimeout(() => {
+        addLog(locale === "ar" 
+          ? "جاري إيقاظ خوادم الذكاء الاصطناعي (قد يستغرق 50 ثانية بسبب الخطة المجانية)..." 
+          : "Waking up AI servers (may take ~50s due to free tier)...");
+      }, 4000);
+
       if (mode === "cv" && cvFile) {
         const fd = new FormData();
         fd.append("job_title", effectiveJob);
@@ -91,6 +99,7 @@ export default function SetupPage() {
       }
 
       const data = await res.json();
+      clearTimeout(wakeUpTimer);
       if (!data.session_id) throw new Error("No session ID received");
 
       addLog("Calibrating AI interviewer...");
@@ -102,6 +111,7 @@ export default function SetupPage() {
 
       router.push(`/interview/${data.session_id}`);
     } catch (e: any) {
+      clearTimeout(wakeUpTimer);
       addLog(`Error: ${e.message || "Connection failed. Please retry."}`);
       setTimeout(() => setIsBooting(false), 3000);
     }
