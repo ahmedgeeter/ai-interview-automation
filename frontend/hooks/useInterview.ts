@@ -327,7 +327,7 @@ export function useInterview(
   return {
     messages, isConnected, isTyping, turnState, isAiSpeaking, isListening, isWakingUpServer,
     questionCount, liveScores, telemetry, streamingText, sessionConfig, pendingAudio, setPendingAudio,
-    sendMessage, sendEndInterview, changeLanguage, handleInterrupt,
+    sendMessage, sendEndInterview, changeLanguage, handleInterrupt, playAudio: queueAudioChunk,
     toggleListening, stopListening, stopCurrentAudio, setIsAiSpeaking
   };
 }
