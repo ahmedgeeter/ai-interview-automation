@@ -44,6 +44,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.responses import JSONResponse
+from starlette.requests import Request
+
+@app.middleware("http")
+async def maintenance_middleware(request: Request, call_next):
+    return JSONResponse(
+        status_code=503,
+        content={"message": "System is currently under maintenance. Please try again later."}
+    )
+
 # Register application routers to logically separate API endpoints
 app.include_router(session_ctrl.router, prefix="/api", tags=["Session"])
 app.include_router(ws_ctrl.router, prefix="/ws", tags=["WebSocket"])
