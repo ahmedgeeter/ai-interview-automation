@@ -1,0 +1,30 @@
+import os
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+
+# Get Postgres URL from environment
+POSTGRES_URL = os.getenv("POSTGRES_URL", "postgresql+asyncpg://aegra:aegra@localhost:5432/aegra")
+if POSTGRES_URL.startswith("postgres://"):
+    POSTGRES_URL = POSTGRES_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+elif POSTGRES_URL.startswith("postgresql://"):
+    POSTGRES_URL = POSTGRES_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+if "?" in POSTGRES_URL:
+    base, query = POSTGRES_URL.split("?", 1)
+    if "ssl" in query or "sslmode" in query:
+        POSTGRES_URL = base + "?ssl=require"
+    else:
+        POSTGRES_URL = base
+engine = create_async_engine(
+    POSTGRES_URL,
+    echo=False,
+    future=True
+)
+
+async_session_maker = sessionmaker(
+    engine, class_=AsyncSession, expire_on_commit=False
+)
+
+async def get_db():
+    async with async_session_maker() as session:
+        yield session
