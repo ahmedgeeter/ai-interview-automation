@@ -143,7 +143,7 @@ export default function InterviewPage() {
   const {
     messages, isConnected, isTyping, isAiSpeaking, isListening, isWakingUpServer,
     questionCount, liveScores, telemetry, streamingText, sessionConfig,
-    pendingAudio, setPendingAudio, playAudio,
+    pendingAudio, setPendingAudio, playAudio, turnState,
     sendMessage, sendEndInterview, changeLanguage,
     toggleListening, stopListening, stopCurrentAudio, setIsAiSpeaking,
   } = useInterview(sessionId, isVoiceMuted, voiceLang, (t) =>
