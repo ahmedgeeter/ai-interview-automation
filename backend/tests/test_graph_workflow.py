@@ -23,7 +23,7 @@ async def test_interviewer_node_fallback():
         
         assert len(result["messages"]) == 1
         assert result["messages"][0].content == "Fallback response"
-        assert result["telemetry"]["model_name"] == "mixtral-8x7b-32768 (fallback)"
+        assert result["telemetry"]["model_name"] == "llama3-8b-8192 (fallback)"
 
 @pytest.mark.asyncio
 async def test_evaluator_node():

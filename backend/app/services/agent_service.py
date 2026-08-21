@@ -10,11 +10,11 @@ from app.models import state
 from app.services.tts_service import generate_full_audio_from_text
 
 live_evaluator = ChatGroq(
-    model="mixtral-8x7b-32768",
+    model="llama3-8b-8192",
     temperature=0,
     api_key=os.getenv("GROQ_API_KEY", "dummy_key")
 )
-fallback_live_evaluator = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
+fallback_live_evaluator = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
 
 async def generate_live_scores(messages, job_title) -> Tuple[Dict[str, Any] | None, Dict[str, int]]:
     try:

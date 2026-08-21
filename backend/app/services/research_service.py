@@ -6,7 +6,7 @@ import asyncio
 from app.models import state
 
 # Use a stable Groq model
-FAST_MODEL = "mixtral-8x7b-32768"
+FAST_MODEL = "llama3-8b-8192"
 
 async def fetch_domain_context(session_id: str, job_title: str, interview_type: str):
     """
