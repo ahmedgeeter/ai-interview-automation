@@ -18,17 +18,17 @@ load_dotenv()
 # Initialize Langfuse Callback
 # langfuse_handler = CallbackHandler()
 
-primary_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.7, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
-primary_evaluator_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.1, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
+primary_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", temperature=0.7, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
+primary_evaluator_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", temperature=0.1, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
 
 # Initialize the Fallback Groq LLM (Line of Defense)
 fallback_llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
+    model="llama-3.1-70b-versatile",
     temperature=0.7,
     api_key=os.getenv("GROQ_API_KEY", "dummy_key")
 )
 fallback_evaluator_llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
+    model="llama-3.1-70b-versatile",
     temperature=0.1,
     api_key=os.getenv("GROQ_API_KEY", "dummy_key")
 )
