@@ -187,7 +187,7 @@ async def interviewer_node(state: InterviewState):
             "prompt_tokens": token_usage.get("prompt_tokens", 0),
             "completion_tokens": token_usage.get("completion_tokens", 0),
             "total_tokens": token_usage.get("total_tokens", 0),
-            "model_name": "gemini-1.5-flash (primary)"
+            "model_name": "gemini-1.5-pro (primary)"
         }
     except Exception as e:
         print(f"Primary LLM Error: {e}. Falling back to Groq...")
@@ -205,7 +205,7 @@ async def interviewer_node(state: InterviewState):
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
                 "total_tokens": 0,
-                "model_name": "llama-3.3-70b-versatile (fallback)"
+                "model_name": "llama3-70b-8192 (fallback)"
             }
         except Exception as e2:
             print(f"Gemini API Error: {e2}")

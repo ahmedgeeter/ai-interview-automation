@@ -5,8 +5,8 @@ import os
 import asyncio
 from app.models import state
 
-# Use the fastest Groq model — llama-3.1-8b is 3x faster than 70b for rubric generation
-FAST_MODEL = "llama-3.1-8b-instant"
+# Use the fastest Groq model — llama3-8b is 3x faster than 70b for rubric generation
+FAST_MODEL = "llama3-8b-8192"
 
 async def fetch_domain_context(session_id: str, job_title: str, interview_type: str):
     """
