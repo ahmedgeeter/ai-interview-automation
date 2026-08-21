@@ -18,17 +18,17 @@ load_dotenv()
 # Initialize Langfuse Callback
 # langfuse_handler = CallbackHandler()
 
-primary_llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0.7, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
-primary_evaluator_llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro", temperature=0.1, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
+primary_llm = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.7, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
+primary_evaluator_llm = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.1, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
 
 # Initialize the Fallback Groq LLM (Line of Defense)
 fallback_llm = ChatGroq(
-    model="llama3-70b-8192",
+    model="mixtral-8x7b-32768",
     temperature=0.7,
     api_key=os.getenv("GROQ_API_KEY", "dummy_key")
 )
 fallback_evaluator_llm = ChatGroq(
-    model="llama3-70b-8192",
+    model="mixtral-8x7b-32768",
     temperature=0.1,
     api_key=os.getenv("GROQ_API_KEY", "dummy_key")
 )
@@ -187,7 +187,7 @@ async def interviewer_node(state: InterviewState):
             "prompt_tokens": token_usage.get("prompt_tokens", 0),
             "completion_tokens": token_usage.get("completion_tokens", 0),
             "total_tokens": token_usage.get("total_tokens", 0),
-            "model_name": "gemini-1.5-pro (primary)"
+            "model_name": "gemini-pro (primary)"
         }
     except Exception as e:
         print(f"Primary LLM Error: {e}. Falling back to Groq...")
@@ -205,7 +205,7 @@ async def interviewer_node(state: InterviewState):
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
                 "total_tokens": 0,
-                "model_name": "llama3-70b-8192 (fallback)"
+                "model_name": "mixtral-8x7b-32768 (fallback)"
             }
         except Exception as e2:
             print(f"Gemini API Error: {e2}")

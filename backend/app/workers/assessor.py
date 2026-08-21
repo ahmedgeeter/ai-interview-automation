@@ -27,7 +27,7 @@ async def evaluate_candidate(session_id: str, job_title: str, messages: list):
         prompt = f"Evaluate the following transcript for a {job_title} role. Output strictly JSON with keys: technical_score (0-100), communication_score (0-100), problem_solving_score (0-100), feedback (string). Transcript:\n{history}"
         
         evaluator = ChatGroq(
-            model="llama3-70b-8192",
+            model="mixtral-8x7b-32768",
             temperature=0,
             api_key=os.getenv("GROQ_API_KEY", "dummy_key")
         )
