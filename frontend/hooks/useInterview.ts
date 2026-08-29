@@ -59,6 +59,11 @@ export function useInterview(
   const [sessionConfig, setSessionConfig] = useState<SessionConfig | null>(null);
   const [pendingAudio, setPendingAudio] = useState<string | null>(null); 
 
+  const turnStateRef = useRef<TurnState>(turnState);
+  useEffect(() => {
+    turnStateRef.current = turnState;
+  }, [turnState]);
+
   const wsRef = useRef<WebSocket | null>(null);
   const recognitionRef = useRef<any>(null);
   const isListeningRef = useRef(false);
@@ -246,6 +251,7 @@ export function useInterview(
 
     ws.onclose = () => {
       setIsConnected(false);
+      if (turnStateRef.current === "EVALUATING" || turnStateRef.current === "COMPLETED") return;
       const delay = Math.min(1000 * 2 ** retryCount.current, 30000);
       reconnectTimeoutRef.current = setTimeout(() => {
         retryCount.current += 1;

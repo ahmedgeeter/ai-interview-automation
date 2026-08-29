@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Briefcase, FileText, UploadCloud, Globe, Moon, Sun,
@@ -49,6 +49,11 @@ export default function SetupPage() {
 
   const isRtl = locale === "ar";
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+  // Smart early wake-up ping to prevent cold start delay when starting the interview
+  useEffect(() => {
+    fetch(`${API_URL}/api/health`).catch(() => {});
+  }, [API_URL]);
 
   const addLog = (msg: string) => setBootLog(p => [...p, msg]);
 

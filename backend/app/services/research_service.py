@@ -6,7 +6,7 @@ import asyncio
 from app.models import state
 
 # Use a stable Groq model
-FAST_MODEL = "llama3-8b-8192"
+FAST_MODEL = "qwen/qwen3.8-27b"
 
 async def fetch_domain_context(session_id: str, job_title: str, interview_type: str):
     """
@@ -29,13 +29,24 @@ Focus ONLY on the exact skills needed for {job_title}. Be direct. No filler text
 Search Results:
 {search_results[:2000]}"""
 
-        llm = ChatGroq(
-            model=FAST_MODEL,
-            temperature=0.1,
-            max_tokens=600,
-            api_key=os.getenv("GROQ_API_KEY", "")
-        )
-        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        try:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            llm = ChatGoogleGenerativeAI(
+                model="gemini-flash-latest",
+                temperature=0.1,
+                max_tokens=600,
+                api_key=os.getenv("GOOGLE_API_KEY", "")
+            )
+            response = await llm.ainvoke([HumanMessage(content=prompt)])
+        except Exception as e:
+            print(f"[Research] Gemini failed: {e}. Falling back to Groq...")
+            llm = ChatGroq(
+                model=FAST_MODEL,
+                temperature=0.1,
+                max_tokens=600,
+                api_key=os.getenv("GROQ_API_KEY", "")
+            )
+            response = await llm.ainvoke([HumanMessage(content=prompt)])
 
         if session_id in state.pending_sessions:
             state.pending_sessions[session_id]["domain_context"] = response.content

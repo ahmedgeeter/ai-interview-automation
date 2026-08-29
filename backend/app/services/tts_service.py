@@ -5,10 +5,11 @@ import asyncio
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator, Tuple
 
-# We will use edge-tts as primary and gTTS as fallback
+# We will use ElevenLabs as primary, edge-tts as secondary, and gTTS as ultimate fallback
 import edge_tts
 from gtts import gTTS
 import io
+import httpx
 
 class BaseTTSProvider(ABC):
     @abstractmethod
@@ -20,6 +21,67 @@ class BaseTTSProvider(ABC):
     async def generate_full_audio(self, text: str, voice: str) -> bytes:
         """Returns the complete audio bytes"""
         pass
+
+class ElevenLabsProvider(BaseTTSProvider):
+    def __init__(self):
+        self.keys = []
+        primary = os.getenv("ELEVENLABS_API_KEY")
+        if primary: self.keys.append(primary)
+        fallback = os.getenv("ELEVENLABS_API_KEY_FALLBACK")
+        if fallback: self.keys.append(fallback)
+        self.current_key_idx = 0
+
+    def _get_current_key(self):
+        if not self.keys:
+            return None
+        return self.keys[self.current_key_idx]
+
+    def _rotate_key(self):
+        if len(self.keys) > 1:
+            self.current_key_idx = (self.current_key_idx + 1) % len(self.keys)
+
+    def _get_voice_id(self, language: str) -> str:
+        # Adam voice ID
+        return "pNInz6obpgDQGcFmaJgB"
+
+    async def generate_audio_stream(self, text: str, voice: str) -> AsyncGenerator[bytes, None]:
+        audio_data = await self.generate_full_audio(text, voice)
+        yield audio_data
+
+    async def generate_full_audio(self, text: str, voice: str) -> bytes:
+        api_key = self._get_current_key()
+        if not api_key:
+            raise ValueError("No ElevenLabs API key configured")
+        
+        # We pass `language` in `voice` param during the pipeline
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{self._get_voice_id(voice)}"
+        headers = {
+            "Accept": "audio/mpeg",
+            "Content-Type": "application/json",
+            "xi-api-key": api_key
+        }
+        data = {
+            "text": text,
+            "model_id": "eleven_multilingual_v2",
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.75
+            }
+        }
+
+        for _ in range(max(1, len(self.keys))):
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, json=data, headers=headers, timeout=15.0)
+                if response.status_code == 200:
+                    return response.content
+                elif response.status_code in (401, 429):
+                    print(f"[ElevenLabsProvider] Error {response.status_code}. Rotating key...")
+                    self._rotate_key()
+                    headers["xi-api-key"] = self._get_current_key()
+                else:
+                    raise Exception(f"ElevenLabs API Error: {response.status_code} - {response.text}")
+        
+        raise Exception("All ElevenLabs API keys failed or rate limited.")
 
 class EdgeTTSProvider(BaseTTSProvider):
     async def generate_audio_stream(self, text: str, voice: str) -> AsyncGenerator[bytes, None]:
@@ -88,15 +150,20 @@ async def generate_audio_chunks_from_text(text: str, language: str = "en") -> As
     voice = get_voice_for_language(language)
     sentences = split_into_sentences(text)
     
-    primary = EdgeTTSProvider()
+    primary = ElevenLabsProvider()
+    secondary = EdgeTTSProvider()
     fallback = FallbackTTSProvider()
     
     for sentence in sentences:
         try:
-            audio_bytes = await primary.generate_full_audio(sentence, voice)
+            audio_bytes = await primary.generate_full_audio(sentence, language)
         except Exception as e:
-            print(f"[TTS] Primary provider failed for sentence: {e}, falling back.")
-            audio_bytes = await fallback.generate_full_audio(sentence, voice)
+            print(f"[TTS] ElevenLabs failed: {e}. Trying EdgeTTS...")
+            try:
+                audio_bytes = await secondary.generate_full_audio(sentence, voice)
+            except Exception as e2:
+                print(f"[TTS] EdgeTTS failed: {e2}. Trying Fallback gTTS...")
+                audio_bytes = await fallback.generate_full_audio(sentence, voice)
             
         if audio_bytes:
             yield base64.b64encode(audio_bytes).decode("utf-8")
@@ -110,13 +177,19 @@ async def generate_full_audio_from_text(text: str, language: str = "en") -> Tupl
         return "", 0
         
     voice = get_voice_for_language(language)
-    primary = EdgeTTSProvider()
+    primary = ElevenLabsProvider()
+    secondary = EdgeTTSProvider()
     fallback = FallbackTTSProvider()
     
     try:
-        audio_bytes = await primary.generate_full_audio(text, voice)
+        audio_bytes = await primary.generate_full_audio(text, language)
     except Exception as e:
-        audio_bytes = await fallback.generate_full_audio(text, voice)
+        print(f"[TTS] ElevenLabs failed: {e}. Trying EdgeTTS...")
+        try:
+            audio_bytes = await secondary.generate_full_audio(text, voice)
+        except Exception as e2:
+            print(f"[TTS] EdgeTTS failed: {e2}. Trying Fallback gTTS...")
+            audio_bytes = await fallback.generate_full_audio(text, voice)
         
     if audio_bytes:
         return base64.b64encode(audio_bytes).decode("utf-8"), len(text)
