@@ -142,7 +142,7 @@ export default function InterviewPage() {
 
   const {
     messages, isConnected, isTyping, isAiSpeaking, isListening, isWakingUpServer,
-    questionCount, liveScores, telemetry, streamingText, sessionConfig,
+    questionCount, liveScores, streamingText, sessionConfig,
     pendingAudio, setPendingAudio, playAudio, turnState,
     sendMessage, sendEndInterview, changeLanguage,
     toggleListening, stopListening, stopCurrentAudio, setIsAiSpeaking,
@@ -470,32 +470,7 @@ export default function InterviewPage() {
           </div>
         </div>
 
-        {/* Token telemetry */}
-        <div className="p-5 border-b border-slate-200 dark:border-stone-800/60">
-          <div className="text-[9px] font-bold uppercase tracking-widest text-slate-400 dark:text-stone-600 mb-3 flex items-center gap-1.5">
-            <Zap className="w-3 h-3" /> Token Telemetry
-          </div>
-          <div className="grid grid-cols-2 gap-2 mb-2">
-            <div className="bg-slate-50 dark:bg-stone-900/50 rounded-lg p-3 border border-slate-100 dark:border-stone-800/50">
-              <div className="text-[9px] text-slate-400 dark:text-stone-600 font-bold uppercase mb-1">Prompt</div>
-              <div className="text-sm font-mono font-bold text-slate-800 dark:text-stone-200">{telemetry.totalPrompt.toLocaleString()}</div>
-              <div className="text-[9px] text-slate-400 dark:text-stone-600 mt-1">+{telemetry.prompt}</div>
-            </div>
-            <div className="bg-slate-50 dark:bg-stone-900/50 rounded-lg p-3 border border-slate-100 dark:border-stone-800/50">
-              <div className="text-[9px] text-slate-400 dark:text-stone-600 font-bold uppercase mb-1">Completion</div>
-              <div className="text-sm font-mono font-bold text-emerald-600 dark:text-emerald-400">{telemetry.totalCompletion.toLocaleString()}</div>
-              <div className="text-[9px] text-slate-400 dark:text-stone-600 mt-1">+{telemetry.completion}</div>
-            </div>
-          </div>
-          <div className="flex justify-between items-center bg-slate-50 dark:bg-stone-900/50 rounded-lg px-3 py-2.5 border border-slate-100 dark:border-stone-800/50">
-            <div className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1.5">
-              <Timer className="w-3 h-3" /> Latency
-            </div>
-            <div className={`text-sm font-mono font-bold ${telemetry.latency > 3000 ? "text-red-500" : telemetry.latency > 1500 ? "text-amber-500" : "text-emerald-500"}`}>
-              {telemetry.latency > 0 ? `${telemetry.latency}ms` : "—"}
-            </div>
-          </div>
-        </div>
+
 
         {/* Live scores */}
         <div className="p-5 flex-1">
