@@ -185,6 +185,16 @@ export default function InterviewPage() {
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   }, [inputValue, sendMessage, stopListening]);
 
+  // Auto-send after 2 seconds of silence
+  useEffect(() => {
+    if (isListening && inputValue.trim()) {
+      const t = setTimeout(() => {
+        handleSend();
+      }, 2000);
+      return () => clearTimeout(t);
+    }
+  }, [inputValue, isListening, handleSend]);
+
   // ── AUDIO UNLOCK ──────────────────────────────────────────────────────────────
   const handleEnterRoom = useCallback(async () => {
     // 1. Unlock the HTML5 Audio context

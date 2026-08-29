@@ -41,7 +41,10 @@ class ElevenLabsProvider(BaseTTSProvider):
             self.current_key_idx = (self.current_key_idx + 1) % len(self.keys)
 
     def _get_voice_id(self, language: str) -> str:
-        # Adam voice ID
+        if language in ("ar", "ar-eg"):
+            # Strong Egyptian/Arabic voice (Fallback to a standard premium voice if env is not set)
+            return os.getenv("ELEVENLABS_EGYPTIAN_VOICE_ID", "jsCqWAovK2zikIGpzIma")
+        # Adam voice ID for English
         return "pNInz6obpgDQGcFmaJgB"
 
     async def generate_audio_stream(self, text: str, voice: str) -> AsyncGenerator[bytes, None]:
