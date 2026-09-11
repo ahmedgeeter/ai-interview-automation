@@ -30,8 +30,15 @@ def get_sync_url(url: str) -> str:
         url = url.replace("postgres://", "postgresql://", 1)
     return url
 
-# Auto-detect SQLite fallback if running locally without active PostgreSQL
-if not RAW_URL or "sqlite" in RAW_URL or os.getenv("USE_SQLITE", "").lower() in ("true", "1") or "@postgres:5432" in RAW_URL:
+# Auto-detect SQLite fallback if running locally or in tests
+if RAW_URL and "sqlite" in RAW_URL:
+    if "sqlite+aiosqlite://" in RAW_URL:
+        ASYNC_POSTGRES_URL = RAW_URL
+        SYNC_POSTGRES_URL = RAW_URL.replace("sqlite+aiosqlite://", "sqlite://")
+    else:
+        ASYNC_POSTGRES_URL = RAW_URL.replace("sqlite://", "sqlite+aiosqlite://")
+        SYNC_POSTGRES_URL = RAW_URL
+elif not RAW_URL or os.getenv("USE_SQLITE", "").lower() in ("true", "1") or "@postgres:5432" in RAW_URL:
     ASYNC_POSTGRES_URL = "sqlite+aiosqlite:///./autohire.db"
     SYNC_POSTGRES_URL = "sqlite:///./autohire.db"
 else:

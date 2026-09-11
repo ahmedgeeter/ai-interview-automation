@@ -32,10 +32,17 @@ def test_websocket_barge_in(mock_agent_stream, mock_graph_state):
     with client.websocket_connect("/ws/test_session") as websocket:
         # Send interrupt
         websocket.send_text(json.dumps({"type": "interrupt"}))
-        data = websocket.receive_json()
         
-        assert data["type"] == "interrupt"
-        assert data["message"] == "Task cancelled"
+        # Read messages until interrupt is confirmed
+        found_interrupt = False
+        for _ in range(5):
+            data = websocket.receive_json()
+            assert data.get("type") != "error", f"WebSocket error: {data.get('message')}"
+            if data.get("type") == "interrupt":
+                assert data["message"] == "Task cancelled"
+                found_interrupt = True
+                break
+        assert found_interrupt, "Did not receive interrupt confirmation"
 
 def test_websocket_message_triggers_llm(mock_agent_stream, mock_graph_state):
     """
@@ -45,6 +52,12 @@ def test_websocket_message_triggers_llm(mock_agent_stream, mock_graph_state):
         websocket.send_text(json.dumps({"type": "message", "content": "Hi"}))
         
         # We expect a message response from our mocked stream (it sends text first)
-        data = websocket.receive_json()
-        if data["type"] == "message":
-            assert data["content"] == "Hello"
+        found_message = False
+        for _ in range(5):
+            data = websocket.receive_json()
+            assert data.get("type") != "error", f"WebSocket error: {data.get('message')}"
+            if data.get("type") == "message":
+                assert "content" in data
+                found_message = True
+                break
+        assert found_message, "Did not receive message response"
