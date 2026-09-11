@@ -6,10 +6,14 @@
  * 
  * Uses Blob URLs instead of base64 data URIs to avoid string length limits
  * and ensure perfect MIME type handling by the browser's media engine.
+ * 
+ * Provides Pause, Resume, Stop, and Play capabilities.
  */
 
 let _audio: HTMLAudioElement | null = null;
 let _isUnlocked = false;
+let _isPaused = false;
+let _currentOnEnd: (() => void) | null = null;
 
 function getAudio(): HTMLAudioElement {
   if (!_audio) {
@@ -44,15 +48,57 @@ export function isAudioUnlocked(): boolean {
   return _isUnlocked;
 }
 
-/** Stop currently playing audio. */
+/** Returns true if audio is currently paused. */
+export function isAudioPaused(): boolean {
+  return _isPaused;
+}
+
+/** Returns true if audio is actively playing. */
+export function isAudioPlaying(): boolean {
+  if (!_audio) return false;
+  return !_audio.paused && !_audio.ended && _audio.currentTime > 0;
+}
+
+/** Pause currently playing audio without clearing src or dropping position. */
+export function pauseAudio(): void {
+  if (_audio && !_audio.paused) {
+    _audio.pause();
+    _isPaused = true;
+    console.log("[Audio] Playback paused at", _audio.currentTime);
+  }
+}
+
+/** Resume currently paused audio from where it stopped. */
+export async function resumeAudio(): Promise<void> {
+  if (_audio && _isPaused) {
+    try {
+      _isPaused = false;
+      await _audio.play();
+      console.log("[Audio] Playback resumed from", _audio.currentTime);
+    } catch (e) {
+      console.error("[Audio] Resume error:", e);
+    }
+  }
+}
+
+/** Stop currently playing audio and reset playback state. */
 export function stopCurrentAudio(): void {
+  _isPaused = false;
   if (_audio) {
     _audio.pause();
     _audio.currentTime = 0;
+    _audio.onplay = null;
+    _audio.onended = null;
+    _audio.onerror = null;
     if (_audio.src && _audio.src.startsWith('blob:')) {
       URL.revokeObjectURL(_audio.src);
     }
     _audio.src = "";
+  }
+  if (_currentOnEnd) {
+    const cb = _currentOnEnd;
+    _currentOnEnd = null;
+    cb();
   }
 }
 
@@ -71,6 +117,8 @@ export async function playMp3Base64(
 
   try {
     const audio = getAudio();
+    _isPaused = false;
+    _currentOnEnd = onEnd || null;
     
     // Clear previous listeners
     audio.onplay = null;
@@ -85,11 +133,13 @@ export async function playMp3Base64(
     
     audio.onended = () => {
       console.log("[Audio] Playback ended naturally");
+      _currentOnEnd = null;
       onEnd?.();
     };
     
     audio.onerror = (e) => {
       console.error("[Audio] HTML5 Audio error during playback:", audio.error);
+      _currentOnEnd = null;
       onEnd?.();
     };
 
@@ -116,6 +166,7 @@ export async function playMp3Base64(
     await audio.play();
   } catch (e) {
     console.error("[Audio] Playback error:", e);
+    _currentOnEnd = null;
     onEnd?.();
   }
 }

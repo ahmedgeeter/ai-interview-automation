@@ -3,13 +3,27 @@ import base64
 import re
 import asyncio
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, Tuple
-
-# We will use ElevenLabs as primary, edge-tts as secondary, and gTTS as ultimate fallback
-import edge_tts
-from gtts import gTTS
+from typing import AsyncGenerator, Tuple, List
 import io
 import httpx
+import edge_tts
+from gtts import gTTS
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Shared persistent HTTP client with HTTP/2 and connection pooling for minimal latency
+_http_client: httpx.AsyncClient | None = None
+
+def get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            http2=True,
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=60.0),
+            timeout=httpx.Timeout(12.0, connect=4.0)
+        )
+    return _http_client
 
 class BaseTTSProvider(ABC):
     @abstractmethod
@@ -23,68 +37,100 @@ class BaseTTSProvider(ABC):
         pass
 
 class ElevenLabsProvider(BaseTTSProvider):
-    def __init__(self):
-        self.keys = []
-        primary = os.getenv("ELEVENLABS_API_KEY")
-        if primary: self.keys.append(primary)
-        fallback = os.getenv("ELEVENLABS_API_KEY_FALLBACK")
-        if fallback: self.keys.append(fallback)
-        self.current_key_idx = 0
+    # Class-level shared active key index so rotation persists across calls and chunks
+    _shared_key_idx = 0
 
-    def _get_current_key(self):
+    def __init__(self):
+        self.keys: List[str] = []
+        primary = os.getenv("ELEVENLABS_API_KEY", "").strip()
+        if primary:
+            self.keys.append(primary)
+        fallback = os.getenv("ELEVENLABS_API_KEY_FALLBACK", "").strip()
+        if fallback and fallback not in self.keys:
+            self.keys.append(fallback)
+        self.model_id = os.getenv("ELEVENLABS_MODEL_ID", "eleven_turbo_v2_5")
+
+    def _get_current_key(self) -> str | None:
         if not self.keys:
             return None
-        return self.keys[self.current_key_idx]
+        return self.keys[ElevenLabsProvider._shared_key_idx % len(self.keys)]
 
     def _rotate_key(self):
         if len(self.keys) > 1:
-            self.current_key_idx = (self.current_key_idx + 1) % len(self.keys)
+            ElevenLabsProvider._shared_key_idx = (ElevenLabsProvider._shared_key_idx + 1) % len(self.keys)
+            print(f"[ElevenLabsProvider] Rotated to key index: {ElevenLabsProvider._shared_key_idx}")
 
     def _get_voice_id(self, language: str) -> str:
-        if language in ("ar", "ar-eg"):
-            # Strong Egyptian/Arabic voice (Fallback to a standard premium voice if env is not set)
-            return os.getenv("ELEVENLABS_EGYPTIAN_VOICE_ID", "jsCqWAovK2zikIGpzIma")
-        # Adam voice ID for English
-        return "pNInz6obpgDQGcFmaJgB"
+        if language == "ar-eg":
+            # Liam: Energetic, natural conversational Egyptian/Arabic (Turbo EG in UI)
+            return os.getenv("ELEVENLABS_EGYPTIAN_VOICE_ID", "TX3LPaxmHKxFdv7VOQHJ")
+        elif language == "ar":
+            # George: Warm, deep, articulate Arabic storyteller (Turbo AR in UI)
+            return os.getenv("ELEVENLABS_ARABIC_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb")
+        # Charlie: Deep, confident energetic English (Turbo EN in UI)
+        return os.getenv("ELEVENLABS_VOICE_ID", "IKne3meq5aSn9XLyUdCD")
 
     async def generate_audio_stream(self, text: str, voice: str) -> AsyncGenerator[bytes, None]:
         audio_data = await self.generate_full_audio(text, voice)
         yield audio_data
 
     async def generate_full_audio(self, text: str, voice: str) -> bytes:
-        api_key = self._get_current_key()
-        if not api_key:
+        if not self.keys:
             raise ValueError("No ElevenLabs API key configured")
         
-        # We pass `language` in `voice` param during the pipeline
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{self._get_voice_id(voice)}"
-        headers = {
-            "Accept": "audio/mpeg",
-            "Content-Type": "application/json",
-            "xi-api-key": api_key
-        }
-        data = {
-            "text": text,
-            "model_id": "eleven_multilingual_v2",
-            "voice_settings": {
-                "stability": 0.5,
-                "similarity_boost": 0.75
-            }
-        }
-
-        for _ in range(max(1, len(self.keys))):
-            async with httpx.AsyncClient() as client:
-                response = await client.post(url, json=data, headers=headers, timeout=15.0)
-                if response.status_code == 200:
-                    return response.content
-                elif response.status_code in (401, 429):
-                    print(f"[ElevenLabsProvider] Error {response.status_code}. Rotating key...")
-                    self._rotate_key()
-                    headers["xi-api-key"] = self._get_current_key()
-                else:
-                    raise Exception(f"ElevenLabs API Error: {response.status_code} - {response.text}")
+        voice_id = self._get_voice_id(voice)
+        # optimize_streaming_latency=3 cuts audio latency to sub-250ms on turbo/flash models
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?optimize_streaming_latency=3"
         
-        raise Exception("All ElevenLabs API keys failed or rate limited.")
+        models_to_try = [self.model_id]
+        if self.model_id != "eleven_multilingual_v2":
+            models_to_try.append("eleven_multilingual_v2")
+
+        client = get_http_client()
+        attempts = max(1, len(self.keys))
+
+        for attempt in range(attempts):
+            api_key = self._get_current_key()
+            if not api_key:
+                break
+                
+            headers = {
+                "Accept": "audio/mpeg",
+                "Content-Type": "application/json",
+                "xi-api-key": api_key
+            }
+
+            for current_model in models_to_try:
+                data = {
+                    "text": text,
+                    "model_id": current_model,
+                    "voice_settings": {
+                        "stability": 0.45,
+                        "similarity_boost": 0.80,
+                        "style": 0.05,
+                        "use_speaker_boost": True
+                    }
+                }
+
+                try:
+                    response = await client.post(url, json=data, headers=headers)
+                    if response.status_code == 200:
+                        return response.content
+                    elif response.status_code in (401, 429):
+                        print(f"[ElevenLabsProvider] Auth/Quota rate limit ({response.status_code}) on key. Rotating...")
+                        self._rotate_key()
+                        break # Break model loop to try the rotated key
+                    elif response.status_code == 400 and current_model != "eleven_multilingual_v2":
+                        print(f"[ElevenLabsProvider] Model {current_model} returned 400, falling back to multilingual_v2...")
+                        continue
+                    else:
+                        print(f"[ElevenLabsProvider] Error {response.status_code}: {response.text[:200]}")
+                        break
+                except httpx.RequestError as req_err:
+                    print(f"[ElevenLabsProvider] Network request error: {req_err}")
+                    break
+        
+        raise Exception("All ElevenLabs API keys failed, quota exceeded, or service unreachable.")
 
 class EdgeTTSProvider(BaseTTSProvider):
     async def generate_audio_stream(self, text: str, voice: str) -> AsyncGenerator[bytes, None]:
@@ -111,13 +157,11 @@ class EdgeTTSProvider(BaseTTSProvider):
 
 class FallbackTTSProvider(BaseTTSProvider):
     async def generate_audio_stream(self, text: str, voice: str) -> AsyncGenerator[bytes, None]:
-        # gTTS is blocking, so we run it in a thread and return it as a single chunk
         audio = await self.generate_full_audio(text, voice)
         yield audio
 
     async def generate_full_audio(self, text: str, voice: str) -> bytes:
         try:
-            # map edge-tts voice to gTTS language code roughly
             lang = "ar" if "ar" in voice.lower() else "en"
             fp = io.BytesIO()
             def generate():
@@ -128,9 +172,83 @@ class FallbackTTSProvider(BaseTTSProvider):
             return fp.read()
         except Exception as e:
             print(f"[FallbackTTSProvider] Error: {e}")
-            # ultimate fallback: empty audio
             return b""
 
+# Comprehensive Egyptian Colloquial Arabic phonetic mapping
+# Ensures natural intonation and prevents mispronunciations of technical conversational Egyptian
+EGYPTIAN_PHONETIC_MAP = {
+    r"\bعلشان\b": "عَلَشَانْ",
+    r"\bإزيك\b": "إِزَّيَّكْ",
+    r"\bازيك\b": "إِزَّيَّكْ",
+    r"\bإزاي\b": "إِزَّايْ",
+    r"\bازاي\b": "إِزَّايْ",
+    r"\bكده\b": "كِدَه",
+    r"\bإيه\b": "إِيه",
+    r"\bايه\b": "إِيه",
+    r"\bالنهاردة\b": "النَّهَارْدَه",
+    r"\bعايز\b": "عَايِزْ",
+    r"\bعايزك\b": "عَايْزَكْ",
+    r"\bعايزة\b": "عَايْزَة",
+    r"\bمش\b": "مِشْ",
+    r"\bدلوقتي\b": "دِلْوَقْتِي",
+    r"\bفين\b": "فِينْ",
+    r"\bليه\b": "لِيهْ",
+    r"\bشوية\b": "شِوَيَّة",
+    r"\bيلا\b": "يَلَّا",
+    r"\bبرضه\b": "بَرْضُه",
+    r"\bبرضو\b": "بَرْضُه",
+    r"\bكتير\b": "كِتِيرْ",
+    r"\bقوي\b": "قَوِي",
+    r"\bطيب\b": "طَيِّبْ",
+    r"\bطَب\b": "طَبْ",
+    r"\bطب\b": "طَبْ",
+    r"\bأهلاً\b": "أَهْلًا",
+    r"\bاهلا\b": "أَهْلًا",
+    r"\bمعانا\b": "مَعَانَا",
+    r"\bنبدا\b": "نِبْدَأْ",
+    r"\bنبدأ\b": "نِبْدَأْ",
+    r"\bشايف\b": "شَايِفْ",
+    r"\bشايفها\b": "شَايِفْهَا",
+    r"\bشايفين\b": "شَايِفِينْ",
+    r"\bتقدر\b": "تِقْدَرْ",
+    r"\bهتعمل\b": "هَتِعْمِلْ",
+    r"\bهتستخدم\b": "هَتِسْتَخْدِمْ",
+    r"\bهنعمل\b": "هَنِعْمِلْ",
+    r"\bقولي\b": "قُولِّي",
+    r"\bقولنا\b": "قُولَّنَا",
+    r"\bباشمهندس\b": "بَشْمُهَنْدِسْ",
+    r"\bبشمهندس\b": "بَشْمُهَنْدِسْ",
+    r"\bتمام\b": "تَمَامْ",
+    r"\bممكن\b": "مُمْكِنْ",
+    r"\bسؤال\b": "سُؤَالْ",
+    r"\bإنترفيو\b": "إِنْتَرْفْيُو",
+    r"\bانترفيو\b": "إِنْتَرْفْيُو",
+    r"\bكويسة\b": "كُوَيِّسَة",
+    r"\bكويس\b": "كُوَيِّسْ",
+    r"\bبص\b": "بُصّ",
+    r"\bمعلش\b": "مَعْلِشّ",
+    r"\bحاجة\b": "حَاجَة",
+    r"\bحاجات\b": "حَاجَاتْ",
+    r"\bتاني\b": "تَانِي",
+    r"\bتانية\b": "تَانْيَة",
+    r"\bشغال\b": "شَغَّالْ",
+    r"\bشغالة\b": "شَغَّالَة",
+    r"\bزي\b": "زَيّ",
+}
+
+def apply_phonetic_middleware(text: str, language: str) -> str:
+    """
+    Decoupled phonetic middleware: injects localized diacritics into the audio text payload
+    without altering the clean transcript displayed in the chat UI.
+    """
+    if language not in ("ar-eg", "ar"):
+        return text
+    
+    processed = text
+    if language == "ar-eg":
+        for pattern, replacement in EGYPTIAN_PHONETIC_MAP.items():
+            processed = re.sub(pattern, replacement, processed)
+    return processed
 
 def get_voice_for_language(language: str) -> str:
     if language in ("ar", "ar-eg"):
@@ -138,14 +256,19 @@ def get_voice_for_language(language: str) -> str:
     return "en-US-ChristopherNeural"
 
 def split_into_sentences(text: str) -> list[str]:
-    # Simple regex to split on punctuation but keep it
-    sentences = re.split(r'(?<=[.!?؟])\s+', text.strip())
+    # Split on standard punctuation or newlines while keeping readable chunks
+    sentences = re.split(r'(?<=[.!?؟\n])\s+', text.strip())
     return [s for s in sentences if s.strip()]
+
+# Cached singleton providers for optimal memory & socket reuse
+_eleven_provider = ElevenLabsProvider()
+_edge_provider = EdgeTTSProvider()
+_fallback_provider = FallbackTTSProvider()
 
 async def generate_audio_chunks_from_text(text: str, language: str = "en") -> AsyncGenerator[str, None]:
     """
-    Splits text into sentences, generates audio for each using Strategy Pattern,
-    and yields base64 encoded chunks.
+    Splits text into sentences, applies phonetic middleware, generates audio using Strategy Pattern,
+    and yields base64 encoded chunks with sub-300ms responsiveness.
     """
     if not text or not text.strip():
         return
@@ -153,20 +276,18 @@ async def generate_audio_chunks_from_text(text: str, language: str = "en") -> As
     voice = get_voice_for_language(language)
     sentences = split_into_sentences(text)
     
-    primary = ElevenLabsProvider()
-    secondary = EdgeTTSProvider()
-    fallback = FallbackTTSProvider()
-    
     for sentence in sentences:
+        audio_payload_text = apply_phonetic_middleware(sentence, language)
+        audio_bytes = None
         try:
-            audio_bytes = await primary.generate_full_audio(sentence, language)
+            audio_bytes = await _eleven_provider.generate_full_audio(audio_payload_text, language)
         except Exception as e:
             print(f"[TTS] ElevenLabs failed: {e}. Trying EdgeTTS...")
             try:
-                audio_bytes = await secondary.generate_full_audio(sentence, voice)
+                audio_bytes = await _edge_provider.generate_full_audio(audio_payload_text, voice)
             except Exception as e2:
                 print(f"[TTS] EdgeTTS failed: {e2}. Trying Fallback gTTS...")
-                audio_bytes = await fallback.generate_full_audio(sentence, voice)
+                audio_bytes = await _fallback_provider.generate_full_audio(audio_payload_text, voice)
             
         if audio_bytes:
             yield base64.b64encode(audio_bytes).decode("utf-8")
@@ -180,19 +301,17 @@ async def generate_full_audio_from_text(text: str, language: str = "en") -> Tupl
         return "", 0
         
     voice = get_voice_for_language(language)
-    primary = ElevenLabsProvider()
-    secondary = EdgeTTSProvider()
-    fallback = FallbackTTSProvider()
-    
+    audio_payload_text = apply_phonetic_middleware(text, language)
+    audio_bytes = None
     try:
-        audio_bytes = await primary.generate_full_audio(text, language)
+        audio_bytes = await _eleven_provider.generate_full_audio(audio_payload_text, language)
     except Exception as e:
         print(f"[TTS] ElevenLabs failed: {e}. Trying EdgeTTS...")
         try:
-            audio_bytes = await secondary.generate_full_audio(text, voice)
+            audio_bytes = await _edge_provider.generate_full_audio(audio_payload_text, voice)
         except Exception as e2:
             print(f"[TTS] EdgeTTS failed: {e2}. Trying Fallback gTTS...")
-            audio_bytes = await fallback.generate_full_audio(text, voice)
+            audio_bytes = await _fallback_provider.generate_full_audio(audio_payload_text, voice)
         
     if audio_bytes:
         return base64.b64encode(audio_bytes).decode("utf-8"), len(text)

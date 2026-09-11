@@ -117,7 +117,7 @@ export default function DashboardPage() {
               <Activity className="w-8 h-8 text-blue-500" />
               API Operations Dashboard
             </h1>
-            <p className="text-slate-500 dark:text-stone-400 mt-2">Real-time telemetry and cost tracking for AI Interview sessions</p>
+            <p className="text-slate-500 dark:text-stone-400 mt-2">Real-time telemetry and infrastructure tracking for technical assessment sessions</p>
           </div>
           <div className="flex items-center gap-2 px-4 py-2 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded-full text-sm font-medium">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>

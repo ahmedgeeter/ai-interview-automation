@@ -9,8 +9,8 @@ import { useInterview } from "@/hooks/useInterview";
 import { unlockAudioContext } from "@/lib/audioManager";
 import {
   Mic, MicOff, Send, Volume2, VolumeX, Square, Moon, Sun,
-  Globe, ChevronDown, Loader2, User, Bot, AlertTriangle,
-  BarChart2, Zap, Timer, Activity, ChevronRight, Play
+  Globe, ChevronDown, Loader2, User, UserCheck, AlertTriangle,
+  BarChart2, Zap, Timer, Activity, ChevronRight, Play, Pause
 } from "lucide-react";
 
 // ─── Typing dots ───────────────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ function MessageBubble({ msg, isRtl }: { msg: any; isRtl: boolean }) {
     <div className={`flex items-end gap-2.5 ${isAi ? "justify-start" : "justify-end"}`}>
       {isAi && (
         <div className="w-7 h-7 rounded-full bg-slate-900 dark:bg-stone-100 flex items-center justify-center shrink-0 mb-0.5">
-          <Bot className="w-3.5 h-3.5 text-white dark:text-stone-900" />
+          <UserCheck className="w-3.5 h-3.5 text-white dark:text-stone-900" />
         </div>
       )}
       <div className="max-w-[80%] space-y-1">
@@ -109,8 +109,8 @@ function AudioUnlockSplash({
         <h1 className="text-xl font-black text-slate-900 dark:text-stone-50 mb-2">{jobTitle}</h1>
         <p className="text-sm text-slate-500 dark:text-stone-400 mb-8 leading-relaxed">
           {voiceLang === "ar"
-            ? "انقر للدخول وتفعيل الصوت الآلي"
-            : "Click to enter and enable AI voice playback"}
+            ? "انقر للدخول وبدء الجلسة الصوتية"
+            : "Click to enter and enable audio playback"}
         </p>
         <button
           onClick={onEnter}
@@ -146,6 +146,7 @@ export default function InterviewPage() {
     pendingAudio, setPendingAudio, playAudio, turnState,
     sendMessage, sendEndInterview, changeLanguage,
     toggleListening, stopListening, stopCurrentAudio, setIsAiSpeaking,
+    isAudioPaused, pauseAudio, resumeAudio, togglePauseAudio,
   } = useInterview(sessionId, isVoiceMuted, voiceLang, (t) =>
     setInputValue((prev) => prev + t)
   );
@@ -307,6 +308,38 @@ export default function InterviewPage() {
               <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? "bg-emerald-500 animate-pulse" : "bg-red-500"}`} />
               {isConnected ? "Live" : "Offline"}
             </div>
+
+            {/* Audio Pause / Resume & Stop Header Controls */}
+            {(isAiSpeaking || isAudioPaused) && (
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-stone-900 border border-slate-200 dark:border-stone-800 rounded-lg p-0.5 animate-fade-in">
+                <button
+                  onClick={isAudioPaused ? resumeAudio : pauseAudio}
+                  title={
+                    isAudioPaused
+                      ? (voiceLang.startsWith("ar") ? "استئناف صوت المحاور (Resume)" : "Resume Interviewer Voice")
+                      : (voiceLang.startsWith("ar") ? "إيقاف مؤقت لصوت المحاور (Pause)" : "Pause Interviewer Voice")
+                  }
+                  aria-label={isAudioPaused ? "Resume Interviewer Voice" : "Pause Interviewer Voice"}
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold transition-all ${
+                    isAudioPaused
+                      ? "bg-amber-500 hover:bg-amber-600 text-white shadow-sm animate-pulse"
+                      : "bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                  }`}
+                >
+                  {isAudioPaused ? <Play className="w-3 h-3 fill-current" /> : <Pause className="w-3 h-3 fill-current" />}
+                  <span>{isAudioPaused ? (voiceLang.startsWith("ar") ? "استئناف" : "Resume") : (voiceLang.startsWith("ar") ? "إيقاف مؤقت" : "Pause")}</span>
+                </button>
+                <button
+                  onClick={stopCurrentAudio}
+                  title={voiceLang.startsWith("ar") ? "إيقاف الصوت تماماً والانتقال للرد (Stop/Skip)" : "Stop Voice & Speak Now"}
+                  aria-label="Stop Interviewer Voice"
+                  className="p-1 hover:bg-red-50 dark:hover:bg-red-950/30 text-red-500 rounded transition-colors"
+                >
+                  <Square className="w-3 h-3 fill-current" />
+                </button>
+              </div>
+            )}
+
             <button onClick={handleMuteToggle} className={`w-7 h-7 rounded border flex items-center justify-center transition-colors ${isVoiceMuted ? "border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 text-red-500" : "border-slate-200 dark:border-stone-800 text-slate-400 hover:bg-slate-100 dark:hover:bg-stone-800"}`}>
               {isVoiceMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
             </button>
@@ -338,13 +371,41 @@ export default function InterviewPage() {
           </div>
           <div className="flex items-center gap-3">
             {turnState === "SPEAKING" && (
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/40 text-blue-600 dark:text-blue-400 text-[11px] font-bold">
-                <div className="flex gap-0.5 items-end h-3">
-                  {[0, 1, 2, 3].map(i => (
-                    <div key={i} className="w-1 bg-blue-500 rounded-sm animate-pulse" style={{ height: `${Math.random() * 60 + 40}%`, animationDuration: `${0.4 + i*0.1}s` }} />
-                  ))}
+              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-[11px] font-bold transition-all ${
+                isAudioPaused
+                  ? "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900/40 text-amber-700 dark:text-amber-400"
+                  : "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900/40 text-blue-600 dark:text-blue-400"
+              }`}>
+                {isAudioPaused ? (
+                  <Pause className="w-3 h-3 text-amber-500" />
+                ) : (
+                  <div className="flex gap-0.5 items-end h-3">
+                    {[0, 1, 2, 3].map(i => (
+                      <div key={i} className="w-1 bg-blue-500 rounded-sm animate-pulse" style={{ height: `${Math.random() * 60 + 40}%`, animationDuration: `${0.4 + i*0.1}s` }} />
+                    ))}
+                  </div>
+                )}
+                <span>
+                  {isAudioPaused
+                    ? (voiceLang.startsWith("ar") ? "الصوت متوقف مؤقتاً" : "Audio Paused")
+                    : (voiceLang.startsWith("ar") ? "الذكاء الاصطناعي يتحدث" : "AI Speaking")}
+                </span>
+                <div className="flex items-center gap-1 ms-1 ps-1 border-s border-current/20">
+                  <button
+                    onClick={isAudioPaused ? resumeAudio : pauseAudio}
+                    className="hover:opacity-80 transition-opacity p-0.5 rounded"
+                    title={isAudioPaused ? "استئناف الصوت" : "إيقاف مؤقت للصوت"}
+                  >
+                    {isAudioPaused ? <Play className="w-3 h-3 fill-current" /> : <Pause className="w-3 h-3 fill-current" />}
+                  </button>
+                  <button
+                    onClick={stopCurrentAudio}
+                    className="hover:opacity-80 text-red-500 transition-opacity p-0.5 rounded"
+                    title="إيقاف الصوت تماماً"
+                  >
+                    <Square className="w-2.5 h-2.5 fill-current" />
+                  </button>
                 </div>
-                {voiceLang === "ar" ? "الذكاء الاصطناعي يتحدث" : "AI Speaking"}
               </div>
             )}
             {turnState === "LISTENING" && isListening && (
@@ -382,14 +443,14 @@ export default function InterviewPage() {
               <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />
               <p className="text-sm font-bold text-slate-700 dark:text-stone-300 mb-2">
                 {isWakingUpServer 
-                  ? (voiceLang === "ar" ? "جاري إيقاظ الذكاء الاصطناعي..." : "Waking up AI engine...")
-                  : (voiceLang === "ar" ? "يجهّز أول سؤال..." : "Preparing first question...")}
+                  ? (voiceLang === "ar" ? "جاري تهيئة بيئة التقييم وتجهيز المحاور..." : "Initializing interview assessment environment...")
+                  : (voiceLang === "ar" ? "جاري تجهيز السؤال الأول..." : "Preparing first technical question...")}
               </p>
               {isWakingUpServer && (
-                <p className="text-xs text-slate-400 dark:text-stone-500 max-w-[250px]">
+                <p className="text-xs text-slate-400 dark:text-stone-500 max-w-[280px]">
                   {voiceLang === "ar" 
-                    ? "الخادم في وضع السكون بسبب الخطة المجانية. قد يستغرق هذا حوالي 50 ثانية، يرجى الانتظار." 
-                    : "Server is sleeping due to free tier. This may take ~50 seconds, please wait."}
+                    ? "جاري مزامنة سياق التقييم وتحميل المعايير الهندسية، لحظات ونبدأ." 
+                    : "Synchronizing assessment context and loading technical benchmarks. Ready in moments."}
                 </p>
               )}
             </div>
@@ -398,7 +459,7 @@ export default function InterviewPage() {
           {streamingText && (
             <div className="flex items-end gap-2.5 justify-start">
               <div className="w-7 h-7 rounded-full bg-slate-900 dark:bg-stone-100 flex items-center justify-center shrink-0 mb-0.5">
-                <Bot className="w-3.5 h-3.5 text-white dark:text-stone-900" />
+                <UserCheck className="w-3.5 h-3.5 text-white dark:text-stone-900" />
               </div>
               <div className="max-w-[80%] px-4 py-3 rounded-2xl rounded-bl-sm bg-white dark:bg-stone-900 border border-slate-200 dark:border-stone-800 text-slate-800 dark:text-stone-200 text-sm leading-relaxed shadow-sm" dir={voiceLang.startsWith("ar") ? "rtl" : "ltr"}>
                 {streamingText}
@@ -409,7 +470,7 @@ export default function InterviewPage() {
           {isTyping && !streamingText && (
             <div className="flex items-end gap-2.5 justify-start">
               <div className="w-7 h-7 rounded-full bg-slate-900 dark:bg-stone-100 flex items-center justify-center shrink-0 mb-0.5">
-                <Bot className="w-3.5 h-3.5 text-white dark:text-stone-900" />
+                <UserCheck className="w-3.5 h-3.5 text-white dark:text-stone-900" />
               </div>
               <div className="px-4 py-3 rounded-2xl rounded-bl-sm bg-white dark:bg-stone-900 border border-slate-200 dark:border-stone-800 shadow-sm">
                 <TypingDots />
@@ -455,17 +516,65 @@ export default function InterviewPage() {
         {/* Agent status */}
         <div className="p-5 border-b border-slate-200 dark:border-stone-800/60">
           <div className="text-[9px] font-bold uppercase tracking-widest text-slate-400 dark:text-stone-600 mb-3">Agent Status</div>
-          <div className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${turnState === "SPEAKING" ? "bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900/40" : "bg-slate-50 dark:bg-stone-900/40 border-slate-100 dark:border-stone-800/50"}`}>
-            <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${turnState === "SPEAKING" ? "bg-blue-500 text-white" : "bg-slate-200 dark:bg-stone-800 text-slate-400 dark:text-stone-500"}`}>
-              <Volume2 className="w-4 h-4" />
-            </div>
-            <div>
-              <div className={`text-xs font-bold ${turnState === "SPEAKING" ? "text-blue-600 dark:text-blue-400" : "text-slate-500 dark:text-stone-500"}`}>
-                {turnState === "SPEAKING" ? (voiceLang === "ar" ? "يتحدث الآن" : "Speaking") : turnState === "THINKING" ? (voiceLang === "ar" ? "يفكر..." : "Processing...") : (voiceLang === "ar" ? "جاهز" : "Ready")}
+          <div className={`p-3 rounded-xl border transition-all ${
+            turnState === "SPEAKING"
+              ? isAudioPaused
+                ? "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40"
+                : "bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900/40 shadow-sm"
+              : "bg-slate-50 dark:bg-stone-900/40 border-slate-100 dark:border-stone-800/50"
+          }`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                  turnState === "SPEAKING"
+                    ? isAudioPaused ? "bg-amber-500 text-white" : "bg-blue-500 text-white"
+                    : "bg-slate-200 dark:bg-stone-800 text-slate-400 dark:text-stone-500"
+                }`}>
+                  {isAudioPaused ? <Pause className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                </div>
+                <div>
+                  <div className={`text-xs font-bold ${
+                    turnState === "SPEAKING"
+                      ? isAudioPaused ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"
+                      : "text-slate-500 dark:text-stone-500"
+                  }`}>
+                    {turnState === "SPEAKING"
+                      ? (isAudioPaused
+                          ? (voiceLang.startsWith("ar") ? "متوقف مؤقتاً" : "Paused")
+                          : (voiceLang.startsWith("ar") ? "يتحدث الآن" : "Speaking"))
+                      : turnState === "THINKING"
+                        ? (voiceLang.startsWith("ar") ? "يفكر..." : "Processing...")
+                        : (voiceLang.startsWith("ar") ? "جاهز" : "Ready")}
+                  </div>
+                  <div className="text-[10px] text-slate-400 dark:text-stone-600 mt-0.5">
+                    {voiceLang === "en" ? "Charlie · Turbo EN" : voiceLang === "ar-eg" ? "Liam · Turbo EG" : "George · Turbo AR"}
+                  </div>
+                </div>
               </div>
-              <div className="text-[10px] text-slate-400 dark:text-stone-600 mt-0.5">
-                {voiceLang === "en" ? "Charlie · Turbo EN" : voiceLang === "ar-eg" ? "Liam · Turbo EG" : "George · Turbo AR"}
-              </div>
+
+              {/* Action buttons if speaking or paused */}
+              {(turnState === "SPEAKING" || isAiSpeaking || isAudioPaused) && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={isAudioPaused ? resumeAudio : pauseAudio}
+                    className={`p-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1 transition-all ${
+                      isAudioPaused
+                        ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-sm"
+                        : "bg-white dark:bg-stone-800 hover:bg-slate-100 dark:hover:bg-stone-700 text-slate-700 dark:text-stone-300 border-slate-200 dark:border-stone-700"
+                    }`}
+                    title={isAudioPaused ? "استئناف" : "إيقاف مؤقت"}
+                  >
+                    {isAudioPaused ? <Play className="w-3.5 h-3.5 fill-current" /> : <Pause className="w-3.5 h-3.5 fill-current" />}
+                  </button>
+                  <button
+                    onClick={stopCurrentAudio}
+                    className="p-1.5 rounded-lg border border-red-200 dark:border-red-900/40 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                    title="إيقاف تماماً"
+                  >
+                    <Square className="w-3.5 h-3.5 fill-current" />
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

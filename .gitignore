@@ -46,3 +46,13 @@ logs/
 *.njsproj
 *.sln
 *.swp
+
+# SQLite Databases
+*.db
+*.sqlite
+*.sqlite3
+autohire.db
+backend/autohire.db
+
+# Scratch & Temporary Test Scripts
+scratch/

@@ -9,12 +9,19 @@ import os
 from app.models import state
 from app.services.tts_service import generate_full_audio_from_text
 
+GROQ_FAST_MODEL = os.getenv("GROQ_FAST_MODEL", "qwen/qwen3.8-27b")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
 live_evaluator = ChatGroq(
-    model="qwen/qwen3.8-27b",
+    model=GROQ_FAST_MODEL,
     temperature=0,
-    api_key=os.getenv("GROQ_API_KEY", "dummy_key")
+    api_key=os.getenv("GROQ_API_KEY", "")
 )
-fallback_live_evaluator = ChatGoogleGenerativeAI(model="gemini-flash-latest", temperature=0, api_key=os.getenv("GOOGLE_API_KEY", "dummy_key"))
+fallback_live_evaluator = ChatGoogleGenerativeAI(
+    model=GEMINI_MODEL, 
+    temperature=0, 
+    api_key=os.getenv("GOOGLE_API_KEY", "")
+)
 
 async def generate_live_scores(messages, job_title) -> Tuple[Dict[str, Any] | None, Dict[str, int]]:
     try:
@@ -31,10 +38,10 @@ async def generate_live_scores(messages, job_title) -> Tuple[Dict[str, Any] | No
         prompt = f"Evaluate the latest response for a {job_title} role. Output strictly JSON with keys: technical, communication, problem_solving (values 0-100). Transcript:\n{history}"
         
         try:
-            res = await asyncio.to_thread(live_evaluator.invoke, [HumanMessage(content=prompt)])
+            res = await live_evaluator.ainvoke([HumanMessage(content=prompt)])
         except Exception as e:
             print(f"Groq Live eval error: {e}. Falling back to Gemini...")
-            res = await asyncio.to_thread(fallback_live_evaluator.invoke, [HumanMessage(content=prompt)])
+            res = await fallback_live_evaluator.ainvoke([HumanMessage(content=prompt)])
             
         content = res.content
         if "{" in content:
@@ -75,10 +82,10 @@ async def process_agent_stream(session_id: str, graph_input: Dict[str, Any], sen
             content = last_msg.get("content", "") if isinstance(last_msg, dict) else getattr(last_msg, "content", "")
             if isinstance(content, str) and not content.strip().startswith("{") and not content.strip().startswith("```"):
                 final_text = content
-                # Simulate streaming for the frontend typing effect
-                chunk_size = 3
+                # High-speed token streaming for ultra-responsive UI
+                chunk_size = 8
                 for i in range(0, len(final_text), chunk_size):
                     await send_delta_func(final_text[i:i+chunk_size])
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(0.002)
                     
     return new_state, final_text

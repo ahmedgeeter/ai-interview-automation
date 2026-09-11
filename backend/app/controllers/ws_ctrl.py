@@ -19,6 +19,7 @@ REDIS_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
 
 # Registry for active generation tasks per session
 active_session_tasks = {}
+session_last_msg_time = {}
 
 async def send_live_eval(websocket: WebSocket, messages: list, job_title: str, session_totals: dict):
     scores, eval_tokens = await generate_live_scores(messages, job_title)
@@ -71,8 +72,9 @@ async def redis_listener(websocket: WebSocket, session_id: str):
                 break
     except asyncio.CancelledError:
         pass
-    except Exception as e:
-        print(f"Redis listener error: {e}")
+    except Exception:
+        # In standalone or development mode without Redis container, Redis pubsub is omitted.
+        pass
     finally:
         try:
             await pubsub.unsubscribe()
@@ -105,21 +107,66 @@ async def handle_agent_response(websocket: WebSocket, session_id: str, graph_inp
     """Background task to process LLM and TTS stream."""
     try:
         async def send_delta(delta: str):
-            await websocket.send_json({"type": "text_delta", "delta": delta})
+            try:
+                await websocket.send_json({"type": "text_delta", "delta": delta})
+            except Exception:
+                pass
 
         new_state, final_text = await process_agent_stream(session_id, graph_input, send_delta)
         is_over = new_state.get("question_count", 0) > new_state.get("max_questions", 5)
 
         if is_over:
-            await websocket.send_json({
-                "type": "message",
-                "content": "The interview has concluded. Generating scorecard asynchronously...",
-                "question_count": new_state.get("question_count", 0)
-            })
-            if not new_state.get("evaluation_payload"):
-                messages = new_state.get("messages", [])
-                job_title = new_state.get("job_title", "")
-                asyncio.create_task(evaluate_candidate(session_id, job_title, [m.dict() if hasattr(m, 'dict') else m for m in messages]))
+            try:
+                await websocket.send_json({
+                    "type": "message",
+                    "content": "The interview has concluded. Generating scorecard asynchronously...",
+                    "question_count": new_state.get("question_count", 0)
+                })
+            except Exception:
+                pass
+
+            scorecard = new_state.get("evaluation_payload")
+            messages = new_state.get("messages", [])
+            job_title = new_state.get("job_title", "Senior AI Engineer")
+
+            if not scorecard:
+                print(f"[WS] Generating evaluation for session {session_id}...")
+                try:
+                    scorecard = await evaluate_candidate(
+                        session_id, 
+                        job_title, 
+                        [m.dict() if hasattr(m, 'dict') else m for m in messages]
+                    )
+                except Exception as eval_err:
+                    print(f"[WS] Evaluation candidate error: {eval_err}")
+
+            if scorecard and isinstance(scorecard, dict) and not scorecard.get("error"):
+                # Save to database
+                try:
+                    from app.models.database import async_session_maker
+                    from app.models.models import Evaluation, Session as DbSession
+                    from sqlalchemy import select
+                    if async_session_maker:
+                        async with async_session_maker() as db_ctx:
+                            db_s = (await db_ctx.execute(select(DbSession).filter(DbSession.id == session_id))).scalars().first()
+                            if db_s:
+                                db_s.status = "completed"
+                            eval_record = Evaluation(session_id=session_id, scorecard=scorecard)
+                            db_ctx.add(eval_record)
+                            await db_ctx.commit()
+                            print(f"[WS] Saved evaluation record to DB for session {session_id}")
+                except Exception as save_err:
+                    print(f"[WS] DB save error for evaluation: {save_err}")
+
+                # Send evaluation_complete DIRECTLY over the WebSocket so frontend navigates
+                try:
+                    await websocket.send_json({
+                        "type": "evaluation_complete",
+                        "scorecard": scorecard
+                    })
+                    print(f"[WS] Sent evaluation_complete to WebSocket for session {session_id}")
+                except Exception as ws_err:
+                    print(f"[WS] Error sending evaluation_complete to websocket: {ws_err}")
             return
 
         telemetry = new_state.get("telemetry", {})
@@ -138,13 +185,16 @@ async def handle_agent_response(websocket: WebSocket, session_id: str, graph_inp
             
             asyncio.create_task(broadcast_dashboard_update())
             
-            await websocket.send_json({
-                "type": "telemetry",
-                "prompt_tokens": telemetry.get("prompt_tokens", 0),
-                "completion_tokens": telemetry.get("completion_tokens", 0),
-                "latency_ms": telemetry.get("latency_ms", 0),
-                "voice_tokens": 0
-            })
+            try:
+                await websocket.send_json({
+                    "type": "telemetry",
+                    "prompt_tokens": telemetry.get("prompt_tokens", 0),
+                    "completion_tokens": telemetry.get("completion_tokens", 0),
+                    "latency_ms": telemetry.get("latency_ms", 0),
+                    "voice_tokens": 0
+                })
+            except Exception:
+                pass
 
         final_messages = new_state.get("messages", [])
         if final_messages:
@@ -152,27 +202,36 @@ async def handle_agent_response(websocket: WebSocket, session_id: str, graph_inp
             last_msg_content = last_msg.get("content", "") if isinstance(last_msg, dict) else getattr(last_msg, "content", "")
             
             # Send the text message first without audio to update UI instantly
-            await websocket.send_json({
-                "type": "message",
-                "content": last_msg_content,
-                "question_count": new_state.get("question_count", 0),
-                "is_warning": False,
-            })
+            try:
+                await websocket.send_json({
+                    "type": "message",
+                    "content": last_msg_content,
+                    "question_count": new_state.get("question_count", 0),
+                    "is_warning": False,
+                })
+            except Exception:
+                pass
             
             # Stream audio chunks asynchronously
             if final_text:
-                async for chunk_b64 in generate_audio_chunks_from_text(final_text, language=new_state.get("language", "en")):
-                    await websocket.send_json({
-                        "type": "audio_chunk",
-                        "audio_base64": chunk_b64
-                    })
-                    # voice tokens estimation based on length, simplified
-                    session_totals["voice"] += len(final_text)
-                    await websocket.send_json({
-                        "type": "telemetry",
-                        "prompt_tokens": 0, "completion_tokens": 0, "latency_ms": 0,
-                        "voice_tokens": len(final_text) // max(1, len(final_text.split())) # rough estimation per chunk
-                    })
+                try:
+                    async for chunk_b64 in generate_audio_chunks_from_text(final_text, language=new_state.get("language", "en")):
+                        try:
+                            await websocket.send_json({
+                                "type": "audio_chunk",
+                                "audio_base64": chunk_b64
+                            })
+                            # voice tokens estimation based on length, simplified
+                            session_totals["voice"] += len(final_text)
+                            await websocket.send_json({
+                                "type": "telemetry",
+                                "prompt_tokens": 0, "completion_tokens": 0, "latency_ms": 0,
+                                "voice_tokens": len(final_text) // max(1, len(final_text.split())) # rough estimation per chunk
+                            })
+                        except Exception:
+                            break
+                except Exception as audio_err:
+                    print(f"[TTS] Audio streaming error: {audio_err}")
 
         messages = new_state.get("messages", [])
         if messages and new_state.get("question_count", 0) > 1:
@@ -190,6 +249,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
     asyncio.create_task(broadcast_dashboard_update())
         
     session_totals = {"prompt": 0, "completion": 0, "latency_sum": 0, "turns": 0, "voice": 0}
+    current_values = {}
     
     keep_alive_task = asyncio.create_task(keep_alive(websocket))
     redis_task = asyncio.create_task(redis_listener(websocket, session_id))
@@ -202,10 +262,31 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
             await websocket.close()
             return
             
-        current_values = state_resp.values
-        initial_config = state.pending_sessions.get(session_id, {})
+        current_values = state_resp.values if hasattr(state_resp, 'values') else (state_resp or {})
+            
+        initial_config = state.pending_sessions.get(session_id)
+        if not initial_config:
+            from sqlalchemy import select
+            from app.models.models import Session as DbSession
+            result = await db.execute(select(DbSession).filter(DbSession.id == session_id))
+            db_s = result.scalars().first()
+            if db_s and db_s.config:
+                initial_config = db_s.config
+                state.pending_sessions[session_id] = initial_config
+            else:
+                initial_config = {}
 
-        if not current_values.get("messages") and initial_config:
+        if not current_values.get("messages"):
+            if not initial_config:
+                print(f"[WS] No initial config or state found for session {session_id}. Initializing with robust defaults...")
+                initial_config = {
+                    "job_title": "Senior AI Engineer",
+                    "persona": "balanced",
+                    "interview_type": "technical",
+                    "language": "ar-eg",
+                    "question_count": 0,
+                    "max_questions": 5,
+                }
             allowed_keys = [
                 "messages", "job_title", "persona", "domain_context", "cv_text",
                 "interview_type", "language", "telemetry", "interview_context",
@@ -214,12 +295,44 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
                 "topic_coverage", "follow_up_depth"
             ]
             clean_config = {k: v for k, v in initial_config.items() if k in allowed_keys and v is not None and v != [] and v != ""}
-            lang = initial_config.get("language", "en")
+            
+            # Guarantee domain_context is present before Question 1 starts
+            if not clean_config.get("domain_context"):
+                cached_ctx = state.pending_sessions.get(session_id, {}).get("domain_context")
+                if cached_ctx:
+                    clean_config["domain_context"] = cached_ctx
+                else:
+                    from app.services.research_service import fetch_domain_context
+                    j_title = clean_config.get("job_title", "Software Engineer")
+                    i_type = clean_config.get("interview_type", "technical")
+                    cv_t = clean_config.get("cv_text", "")
+                    clean_config["domain_context"] = await fetch_domain_context(session_id, j_title, i_type, cv_t)
+
+            lang = initial_config.get("language", "ar-eg")
             clean_config["messages"] = [{"type": "human", "content": f"Start the interview. Ask the first question now. [LANGUAGE:{lang}]"}]
             
             # Start initial generation task
             task = asyncio.create_task(handle_agent_response(websocket, session_id, clean_config, session_totals))
             active_session_tasks[session_id] = task
+        else:
+            # Candidate reconnected to existing session: replay last question so UI is instantly live
+            final_messages = current_values.get("messages", [])
+            last_ai = None
+            for m in final_messages:
+                m_type = m.get("type") if isinstance(m, dict) else getattr(m, "type", "")
+                m_content = m.get("content") if isinstance(m, dict) else getattr(m, "content", "")
+                if m_type == "ai":
+                    last_ai = m_content
+            if last_ai:
+                try:
+                    await websocket.send_json({
+                        "type": "message",
+                        "content": last_ai,
+                        "question_count": current_values.get("question_count", 0),
+                        "is_warning": False,
+                    })
+                except Exception:
+                    pass
 
         while True:
             data = await websocket.receive_text()
@@ -236,30 +349,36 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
                 # Handle barge-in: cancel current task and send interrupt event back for acknowledgment
                 if session_id in active_session_tasks and not active_session_tasks[session_id].done():
                     active_session_tasks[session_id].cancel()
-                await websocket.send_json({"type": "interrupt", "message": "Task cancelled"})
+                try:
+                    await websocket.send_json({"type": "interrupt", "message": "Task cancelled"})
+                except Exception:
+                    pass
                 continue
 
             state_resp = await graph_app.aget_state({"configurable": {"thread_id": session_id}})
-            current_state = state_resp.values
+            current_state = state_resp.values if hasattr(state_resp, 'values') else (state_resp or {})
             
             if msg_type == "tab_switch":
                 new_cheat = current_state.get("cheat_signals", 0) + 1
                 await graph_app.aupdate_state({"configurable": {"thread_id": session_id}}, {"cheat_signals": new_cheat})
                 
-                language = current_state.get("language", "en")
-                warning_text = "يرجى الانتباه، لقد تم رصد تبديل للنافذة. نرجو الحفاظ على التركيز في المقابلة." if language == "ar" else "Please remain focused on the interview window. Tab switching has been detected and recorded."
+                language = current_state.get("language", "ar-eg")
+                warning_text = "يرجى الانتباه، تم رصد تبديل للنافذة. نرجو الحفاظ على التركيز في المقابلة." if language.startswith("ar") else "Please remain focused on the interview window. Tab switching has been detected and recorded."
                 audio_b64, voice_tokens = await generate_warning_audio(warning_text, language)
                 session_totals["voice"] += voice_tokens
                 
-                await websocket.send_json({
-                    "type": "message",
-                    "content": warning_text,
-                    "is_warning": True
-                })
-                await websocket.send_json({
-                    "type": "audio_chunk",
-                    "audio_base64": audio_b64
-                })
+                try:
+                    await websocket.send_json({
+                        "type": "message",
+                        "content": warning_text,
+                        "is_warning": True
+                    })
+                    await websocket.send_json({
+                        "type": "audio_chunk",
+                        "audio_base64": audio_b64
+                    })
+                except Exception:
+                    pass
                 continue
                 
             graph_input = {}
@@ -270,7 +389,19 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
             elif msg_type == "end_interview":
                 graph_input["question_count"] = current_state.get("max_questions", 5) + 1
             elif msg_type == "message":
-                graph_input["messages"] = [{"type": "human", "content": content}]
+                import time
+                now_ts = time.time()
+                last_ts = session_last_msg_time.get(session_id, 0)
+                if now_ts - last_ts < 0.6:
+                    # Ignore rapid spam flood
+                    continue
+                session_last_msg_time[session_id] = now_ts
+
+                # Hard truncate candidate message to 2,000 characters to prevent prompt stuffing / token abuse
+                safe_content = (content or "").strip()
+                if len(safe_content) > 2000:
+                    safe_content = safe_content[:2000]
+                graph_input["messages"] = [{"type": "human", "content": safe_content}]
 
             # Cancel any existing active task before starting a new one (to prevent race conditions)
             if session_id in active_session_tasks and not active_session_tasks[session_id].done():
@@ -295,7 +426,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
             db.add(token_usage)
             await db.commit()
             
-        if 'current_values' in locals() and current_values.get("messages"):
+        if current_values and current_values.get("messages"):
             # Ensure evaluation runs if disconnected unexpectedly but hasn't completed
             is_over = current_values.get("question_count", 0) > current_values.get("max_questions", 5)
             if not current_values.get("evaluation_payload"):
@@ -312,8 +443,10 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, db: AsyncSes
         except:
             pass
     finally:
-        keep_alive_task.cancel()
-        redis_task.cancel()
-        if session_id in active_session_tasks:
-            active_session_tasks[session_id].cancel()
-            del active_session_tasks[session_id]
+        if 'keep_alive_task' in locals() and keep_alive_task:
+            keep_alive_task.cancel()
+        if 'redis_task' in locals() and redis_task:
+            redis_task.cancel()
+        t = active_session_tasks.pop(session_id, None)
+        if t and not t.done():
+            t.cancel()

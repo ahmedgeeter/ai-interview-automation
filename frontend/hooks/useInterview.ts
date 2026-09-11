@@ -1,7 +1,13 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { playMp3Base64, stopCurrentAudio as stopAudio, isAudioUnlocked } from "@/lib/audioManager";
+import { 
+  playMp3Base64, 
+  stopCurrentAudio as stopAudio, 
+  pauseAudio as pauseAudioMgr, 
+  resumeAudio as resumeAudioMgr, 
+  isAudioUnlocked 
+} from "@/lib/audioManager";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface Message {
@@ -47,11 +53,12 @@ export function useInterview(
   const [turnState, setTurnState] = useState<TurnState>("LISTENING");
   const [isTyping, setIsTyping] = useState(false);
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
+  const [isAudioPaused, setIsAudioPaused] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [questionCount, setQuestionCount] = useState(0);
   const [isWakingUpServer, setIsWakingUpServer] = useState(false);
-  const [serverAwake, setServerAwake] = useState(false);
+  const [serverAwake, setServerAwake] = useState(true);
   const [liveScores, setLiveScores] = useState<LiveScores | null>(null);
   const [telemetry, setTelemetry] = useState<Telemetry>({
     prompt: 0, completion: 0, latency: 0, totalPrompt: 0, totalCompletion: 0, voiceTokens: 0, totalVoiceTokens: 0,
@@ -70,6 +77,7 @@ export function useInterview(
   const retryCount = useRef(0);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isVoiceMutedRef = useRef(isVoiceMuted);
+  const isAudioPausedRef = useRef(false);
   const audioQueue = useRef<string[]>([]);
   const isPlayingAudio = useRef(false);
 
@@ -91,7 +99,7 @@ export function useInterview(
 
   // Audio Playback Queue
   const processAudioQueue = useCallback(async () => {
-    if (isPlayingAudio.current || audioQueue.current.length === 0 || isVoiceMutedRef.current) return;
+    if (isPlayingAudio.current || audioQueue.current.length === 0 || isVoiceMutedRef.current || isAudioPausedRef.current) return;
     
     if (!isAudioUnlocked()) {
       console.warn("[useInterview] Audio not unlocked yet. Storing in queue.");
@@ -109,6 +117,10 @@ export function useInterview(
         () => {}, // onStart
         () => {
           isPlayingAudio.current = false;
+          if (isAudioPausedRef.current) {
+            // User paused while this chunk was finishing; hold queue
+            return;
+          }
           if (audioQueue.current.length > 0) {
             processAudioQueue();
           } else {
@@ -127,10 +139,35 @@ export function useInterview(
     processAudioQueue();
   }, [processAudioQueue]);
 
+  const pauseAudio = useCallback(() => {
+    pauseAudioMgr();
+    isAudioPausedRef.current = true;
+    setIsAudioPaused(true);
+  }, []);
+
+  const resumeAudio = useCallback(async () => {
+    isAudioPausedRef.current = false;
+    setIsAudioPaused(false);
+    await resumeAudioMgr();
+    if (!isPlayingAudio.current && audioQueue.current.length > 0) {
+      processAudioQueue();
+    }
+  }, [processAudioQueue]);
+
+  const togglePauseAudio = useCallback(() => {
+    if (isAudioPausedRef.current) {
+      resumeAudio();
+    } else {
+      pauseAudio();
+    }
+  }, [pauseAudio, resumeAudio]);
+
   const stopCurrentAudio = useCallback(() => {
     stopAudio();
     audioQueue.current = [];
     isPlayingAudio.current = false;
+    isAudioPausedRef.current = false;
+    setIsAudioPaused(false);
     setIsAiSpeaking(false);
     setTurnState("LISTENING");
   }, []);
@@ -218,6 +255,14 @@ export function useInterview(
           if (d.audio_base64) queueAudioChunk(d.audio_base64); // legacy fallback
           if (d.question_count !== undefined) setQuestionCount(d.question_count);
 
+          if (d.content && (d.content.includes("concluded") || d.content.includes("scorecard"))) {
+            setTurnState("EVALUATING");
+            // Smooth auto-redirect to scorecard page
+            setTimeout(() => {
+              router.push(`/scorecard/${sessionId}`);
+            }, 2500);
+          }
+
         } else if (d.type === "audio_chunk") {
           if (d.audio_base64) queueAudioChunk(d.audio_base64);
         } else if (d.type === "telemetry") {
@@ -264,40 +309,53 @@ export function useInterview(
     };
   }, [sessionId, now, queueAudioChunk, router, stopCurrentAudio]);
 
+  // Intelligent wake-up indicator: only display if initial connection takes > 4s
   useEffect(() => {
-    if (!sessionId || serverAwake) return;
-    
-    let isMounted = true;
-    const checkHealth = async () => {
-      setIsWakingUpServer(true);
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      try {
-        const res = await fetch(`${API_URL}/api/health`);
-        if (res.ok) {
-          if (isMounted) {
-            setServerAwake(true);
-            setIsWakingUpServer(false);
-          }
-        } else {
-          if (isMounted) setTimeout(checkHealth, 5000);
+    if (isConnected) {
+      setIsWakingUpServer(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (!isConnected) setIsWakingUpServer(true);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [isConnected]);
+
+  // Tab-switch integrity monitoring (Anti-Cheat Proctoring)
+  const lastTabSwitchSent = useRef<number>(0);
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const handleVisibilityChange = () => {
+      if (document.hidden && wsRef.current?.readyState === WebSocket.OPEN) {
+        const nowMs = Date.now();
+        // Throttle tab switch alerts by at least 4 seconds to prevent flood
+        if (nowMs - lastTabSwitchSent.current > 4000) {
+          lastTabSwitchSent.current = nowMs;
+          console.warn("[Anti-Cheat] Tab switch captured. Sending telemetry signal...");
+          wsRef.current.send(JSON.stringify({ type: "tab_switch" }));
         }
-      } catch (e) {
-        if (isMounted) setTimeout(checkHealth, 5000);
       }
     };
-    checkHealth();
-    return () => { isMounted = false; };
-  }, [sessionId, serverAwake]);
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", handleVisibilityChange);
+    };
+  }, []);
 
   useEffect(() => {
-    if (sessionId && serverAwake) connectWebSocket();
+    if (sessionId) connectWebSocket();
     return () => {
       wsRef.current?.close();
       wsRef.current = null;
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       stopAudio();
     };
-  }, [sessionId, serverAwake, connectWebSocket]);
+  }, [sessionId, connectWebSocket]);
 
   const sendMessage = useCallback(
     (content: string) => {
@@ -322,8 +380,12 @@ export function useInterview(
       setTurnState("EVALUATING");
       wsRef.current.send(JSON.stringify({ type: "end_interview" }));
       setIsTyping(true);
+      // Failsafe auto-redirect after 3.5 seconds
+      setTimeout(() => {
+        router.push(`/scorecard/${sessionId}`);
+      }, 3500);
     }
-  }, []);
+  }, [router, sessionId]);
 
   const changeLanguage = useCallback((lang: "en" | "ar" | "ar-eg") => {
     if (wsRef.current?.readyState === WebSocket.OPEN)
@@ -334,6 +396,7 @@ export function useInterview(
     messages, isConnected, isTyping, turnState, isAiSpeaking, isListening, isWakingUpServer,
     questionCount, liveScores, telemetry, streamingText, sessionConfig, pendingAudio, setPendingAudio,
     sendMessage, sendEndInterview, changeLanguage, handleInterrupt, playAudio: queueAudioChunk,
-    toggleListening, stopListening, stopCurrentAudio, setIsAiSpeaking
+    toggleListening, stopListening, stopCurrentAudio, setIsAiSpeaking,
+    isAudioPaused, pauseAudio, resumeAudio, togglePauseAudio
   };
 }

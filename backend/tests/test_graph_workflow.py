@@ -23,7 +23,7 @@ async def test_interviewer_node_fallback():
         
         assert len(result["messages"]) == 1
         assert result["messages"][0].content == "Fallback response"
-        assert result["telemetry"]["model_name"] == "qwen/qwen3.8-27b (fallback)"
+        assert "(fallback)" in result["telemetry"]["model_name"]
 
 @pytest.mark.asyncio
 async def test_evaluator_node():
@@ -37,12 +37,23 @@ async def test_evaluator_node():
         "language": "en"
     }
     
+    mock_payload = {
+        "technical_depth": 80,
+        "problem_solving": 85,
+        "architecture": 75,
+        "communication": 90,
+        "integrity": 100,
+        "key_strengths": ["Strong React and Node fundamentals"],
+        "key_weaknesses": ["Needs more microservices experience"],
+        "red_flags": [],
+        "final_recommendation": "Hire",
+        "recommended_resources": []
+    }
+    
     with patch("app.graph.nodes.primary_evaluator_llm.with_structured_output") as mock_struct:
-        mock_struct.return_value.ainvoke = AsyncMock(return_value={
-            "technical_depth": 80,
-            "final_recommendation": "Hire"
-        })
+        mock_struct.return_value.ainvoke = AsyncMock(return_value=mock_payload)
         
         result = await evaluator_node(state)
         assert "evaluation_payload" in result
         assert result["evaluation_payload"]["technical_depth"] == 80
+        assert result["evaluation_payload"]["final_recommendation"] == "Hire"

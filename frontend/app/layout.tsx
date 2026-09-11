@@ -21,9 +21,9 @@ const notoArabic = Noto_Sans_Arabic({
 });
 
 export const metadata: Metadata = {
-  title: "AI Technical Interviewer — Autonomous Proctor",
-  description: "High-fidelity AI-powered technical assessment platform with real-time proctoring, voice agents, and comprehensive evaluation.",
-  keywords: ["AI Interview", "Technical Assessment", "Proctor", "LangGraph", "Voice Agent"],
+  title: "AutoHire — Technical Interview Assessment",
+  description: "Interactive technical interview and skills assessment platform with real-time evaluation and comprehensive scorecards.",
+  keywords: ["Technical Assessment", "Interview Platform", "Engineering Evaluation", "AutoHire"],
 };
 
 export default function RootLayout({

@@ -10,6 +10,7 @@ class Session(Base):
     id = Column(String, primary_key=True, index=True) # Maps to Aegra Thread ID
     candidate_name = Column(String, nullable=True)
     job_role = Column(String, nullable=True)
+    config = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     status = Column(String, default="in_progress") # in_progress, completed, evaluating
 

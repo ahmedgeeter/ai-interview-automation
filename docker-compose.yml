@@ -20,8 +20,10 @@ services:
     env_file:
       - ./backend/.env
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       - POSTGRES_URL=postgresql+asyncpg://aegra:aegra@postgres:5432/aegra
       - REDIS_URL=redis://redis:6379/0
@@ -31,12 +33,14 @@ services:
   celery_worker:
     build:
       context: ./backend
-    command: celery -A app.workers.assessor.celery_app worker --loglevel=info
+    command: celery -A app.workers.celery_app.celery_app worker --loglevel=info
     env_file:
       - ./backend/.env
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       - POSTGRES_URL=postgresql+asyncpg://aegra:aegra@postgres:5432/aegra
       - REDIS_URL=redis://redis:6379/0
@@ -53,11 +57,21 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aegra -d aegra"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   pgdata:

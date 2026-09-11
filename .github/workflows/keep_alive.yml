@@ -1,0 +1,18 @@
+name: Always-On Server Keep-Alive
+
+on:
+  schedule:
+    # Run every 10 minutes (prevents cloud cold starts)
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping-server:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping AutoHire Backend
+        env:
+          SERVER_URL: ${{ secrets.BACKEND_PUBLIC_URL || 'https://ai-interview-automation.onrender.com' }}
+        run: |
+          echo "Sending keep-alive pulse to $SERVER_URL/ping"
+          curl -s -f -m 15 "$SERVER_URL/ping" || curl -s -f -m 15 "$SERVER_URL/health" || echo "Server awake attempt sent."

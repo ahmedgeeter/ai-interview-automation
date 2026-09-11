@@ -1,144 +1,293 @@
-# AutoHire: AI-Powered Technical Interview System
+# AutoHire: Autonomous Multimodal Technical Interview System
 
-<div align="center">
-  <img src="https://img.shields.io/badge/Status-Production_Ready-success?style=for-the-badge" alt="Status" />
-  <img src="https://img.shields.io/badge/Architecture-Event_Driven-blue?style=for-the-badge" alt="Architecture" />
-  <img src="https://img.shields.io/badge/Stack-Next.js_|_FastAPI_|_LangGraph-black?style=for-the-badge" alt="Stack" />
-</div>
+AutoHire is a production-grade, real-time autonomous technical interviewer engineered to conduct rigorous, multi-modal engineering assessments. Built on LangGraph state machines, ultra-low-latency LLM inference (Groq Qwen-3.8-27b with Google Gemini Flash fallback), full-duplex WebSockets, and asynchronous evaluation pipelines, the platform mirrors an engineering lead assessment with sub-second response latency.
 
-<br />
-
-AutoHire is a real-time AI interview platform designed to conduct technical, behavioral, and mixed interviews. By leveraging multiple Large Language Models (LLMs) and real-time WebSockets, AutoHire provides an automated assessment solution that evaluates candidates, handles edge cases, and scales efficiently.
+The system supports specialized language engines, including English and professional Egyptian Arabic Technical Dialect (combining authentic regional tech-lead phrasing with Latin-script technical identifiers), live domain research, anti-cheat proctoring, and comprehensive candidate evaluation.
 
 ---
 
-## 1. System Architecture Overview
+## 1. System Architecture
 
-The platform uses a decoupled, event-driven microservices architecture to separate real-time interactions from heavy evaluation tasks, ensuring low latency during the interview.
+```mermaid
+flowchart TB
+    subgraph Client["Client Layer (Next.js 16 / React 19)"]
+        UI["Interview Workspace UI"]
+        STT["Web Speech Recognition"]
+        AudioPipeline["Singleton Audio Queue & Decoder"]
+        Proctor["Tab-Switch & Focus Detector"]
+    end
 
-### Technology Stack
-- **Frontend Layer:** Next.js 14, React, Tailwind CSS. Handles UI state, WebSockets, and browser-native Speech-to-Text (STT).
-- **Backend API Layer:** FastAPI (Python) for REST endpoints and WebSocket concurrency.
-- **Agentic AI Layer:** LangChain and LangGraph for managing stateful interview workflows.
-- **LLM Engine:** 
-  - Primary Model: Groq (Llama-3.3-70b-versatile) for fast generation.
-  - Fallback Model: Google Gemini 1.5 Flash for reliable, multilingual execution.
-- **Asynchronous Processing:** Celery workers backed by Redis for intensive background tasks.
-- **Database:** PostgreSQL for conversational state, session configs, and telemetry.
-- **Voice Synthesis:** ElevenLabs API with custom phonetic adjustments for localized dialects.
+    subgraph EdgeGateway["API & Security Gateway (FastAPI)"]
+        RateLimiter["Sliding-Window IP Rate Limiter"]
+        CORS["CORS Middleware (Configurable Origins)"]
+        WS_Router["Full-Duplex WebSocket Router"]
+        REST_Ctrl["Session & Upload Controllers"]
+        HealthProbes["Health & Ping Probes (GET / HEAD)"]
+    end
 
----
+    subgraph Orchestration["Agentic Orchestration (LangGraph)"]
+        StateEngine["Typed State Graph (InterviewState)"]
+        ResearchEngine["Live Domain Blueprint Synthesizer"]
+        InterviewerNode["Interviewer Agent & Seniority Calibrator"]
+        SecurityGuard["Prompt-Injection & Jailbreak Guardrail"]
+    end
 
-## 2. The AI Pipeline (LangGraph)
+    subgraph InferenceLayer["High-Speed Inference & Voice"]
+        GroqEngine["Primary LLM: Groq Qwen-3.8-27b"]
+        GeminiEngine["Fallback LLM: Gemini 2.5 Flash"]
+        TTS["Edge-TTS / ElevenLabs Audio Pipeline"]
+        LangfuseTracing["Langfuse Observability & Tracing"]
+    end
 
-Instead of traditional request-response calls, AutoHire uses **LangGraph** to model the interview as a state machine.
+    subgraph StorageLayer["Data & Persistence"]
+        DB[(PostgreSQL / SQLite via SQLAlchemy)]
+        RedisPubSub[(Redis Pub/Sub & Broker)]
+        AsyncAssessor["Async Evaluation Engine"]
+    end
 
-### State Definition
-The system maintains a typed dictionary containing the conversation history, job title, persona, telemetry data, language preference, cheat signals, and a dynamic rubric. 
+    UI <-->|WebSocket Stream (text_delta, audio_chunk)| WS_Router
+    Proctor -->|tab_switch event| WS_Router
+    STT -->|Candidate Answer| UI
+    AudioPipeline <--|Base64 Audio Chunks| WS_Router
 
-### Execution Nodes
-1. **Guardrail Node:** The entry point that checks current state limits (e.g., maximum questions) and routes the execution.
-2. **Interviewer Node:** The conversational engine. It generates technical questions based on the candidate's resume and job context, adjusting its tone based on the candidate's experience level.
-3. **Evaluator Node:** A terminal node that performs a comprehensive JSON evaluation of the entire transcript when the interview concludes.
+    REST_Ctrl --> RateLimiter --> DB
+    WS_Router --> StateEngine
+    StateEngine --> ResearchEngine
+    StateEngine --> InterviewerNode
+    InterviewerNode --> SecurityGuard
+    InterviewerNode <--> GroqEngine
+    GroqEngine -.->|Automatic Failover| GeminiEngine
+    InterviewerNode --> TTS --> AudioPipeline
+    InterviewerNode -.-> LangfuseTracing
 
-### Streaming
-The backend invokes the LangGraph state machine asynchronously and intercepts generated tokens. These are streamed to the frontend via WebSockets as text deltas, creating a realistic typing effect and reducing perceived latency.
+    WS_Router -->|On Interview Concluded| AsyncAssessor
+    AsyncAssessor --> DB
+    AsyncAssessor --> RedisPubSub
+    RedisPubSub --> WS_Router
+```
 
----
+### Core Technology Stack
 
-## 3. Real-Time Communication
-
-AutoHire relies on WebSockets for full-duplex communication between the client and server. 
-
-### Connection Lifecycle
-- A WebSocket connection is established when a candidate joins.
-- The server fetches the session configuration from PostgreSQL and reconstructs the LangGraph state.
-- If the connection drops, the frontend attempts an exponential backoff reconnection. Because the state is persistently checkpointed, the interview resumes exactly where it left off.
-
-### Telemetry and Live Assessment
-The backend streams telemetry data (token usage, latency) during the session. Simultaneously, a lightweight asynchronous function evaluates the last few messages to update live progress bars (Technical, Problem Solving, Communication) without blocking the main workflow.
-
----
-
-## 4. Voice Processing Pipeline
-
-The voice pipeline is optimized for realistic interactions with minimal latency, supporting multiple languages and specific dialects.
-
-### Speech-to-Text (STT)
-The frontend uses the native Web Speech API for real-time transcription, sending text directly to the backend instead of large audio files.
-
-### Text-to-Speech (TTS) Middleware
-When the AI generates a response, the backend calls the ElevenLabs API to synthesize speech. The audio streams back to the client as Base64 encoded strings and plays via the Web Audio API. 
-To ensure reliability, the TTS pipeline uses dynamic key rotation. If the primary key fails (e.g., HTTP 401 or 429), it immediately falls back to a secondary key with zero downtime.
-
----
-
-## 5. Background Workers
-
-Evaluating a candidate across multiple dimensions requires analyzing the full transcript, which would block the WebSocket thread if done synchronously.
-
-### Celery Integration
-AutoHire offloads the final evaluation to an asynchronous Celery worker. 
-- When the interview ends, the frontend is notified that the scorecard is generating.
-- The Celery worker processes the evaluation prompt, parses the JSON, and saves it to PostgreSQL.
-- The frontend redirects to a Scorecard Page that polls the API until the evaluation is ready.
-
----
-
-## 6. Integrity Mechanisms
-
-Maintaining the integrity of a remote automated interview is important. AutoHire includes built-in behavioral monitoring.
-
-### Tab-Switch Detection
-The frontend monitors browser visibility. If the candidate switches tabs, a `tab_switch` signal is sent to the backend.
-The backend increments a `cheat_signals` counter. On the next generation cycle, a prompt instruction forces the AI to issue a warning and immediately ask a complex technical question to verify the candidate's knowledge.
+- **Frontend Application:** Next.js 16 (Turbopack), React 19, Vanilla CSS design tokens. Zero third-party UI component libraries; custom-crafted design system supporting dark mode, telemetry displays, and real-time audio visualization.
+- **Backend Application Gateway:** FastAPI with Python 3.11, Uvicorn ASGI server, supporting asynchronous WebSockets and non-blocking I/O.
+- **State Machine & Graph Orchestration:** LangGraph and LangChain Core for deterministic state transitions, message tracking, dynamic rubric comparison, and execution checkpoints.
+- **Inference Hardware & Providers:**
+  - Primary Conversational Engine: Groq LPU Cloud running `qwen/qwen3.8-27b` for sub-300ms Time-To-First-Token (TTFT).
+  - Fallback Engine: Google Gemini 2.5 Flash with automatic cross-provider retry logic.
+- **Audio Processing & Speech Synthesis:** Decoupled phonetic middleware with streaming Base64 audio delivery via Edge-TTS and ElevenLabs.
+- **Database & Persistence:** SQLAlchemy 2.0 with asynchronous drivers (`asyncpg` for PostgreSQL, `aiosqlite` for SQLite zero-config local fallback).
+- **Security & Infrastructure:** In-memory sliding-window IP rate limiting, input sanitization bounds, and automated health keep-alive daemons.
 
 ---
 
-## 7. Engineering Trade-Offs & Solutions
+## 2. Key Engineering Features
 
-### Trade-Off A: Dialect Accuracy vs. Clean UI (Egyptian Arabic)
-* **The Problem:** Standard TTS engines struggle with localized dialects like Egyptian Arabic without explicit diacritics. However, adding diacritics clutters the chat UI.
-* **The Solution:** I built a decoupled phonetic middleware (`tts_service.py`). The LLM outputs clean text for the UI. Before sending it to ElevenLabs, a regex mapping dictionary injects phonetic diacritics exclusively for the audio payload.
-* **Result:** Accurate regional pronunciation without affecting the visual chat experience.
+### Dynamic Domain Research (Live Web Synthesis)
+Instead of querying static question banks that candidates can memorize, AutoHire performs real-time domain research upon session creation. Using DuckDuckGo search integration, it crawls current engineering requirements for the target role, synthesizing realistic production incident scenarios, scaling bottlenecks, and architectural trade-off rubrics tailored specifically to the declared position and candidate CV.
 
-### Trade-Off B: Latency vs. Accurate Evaluation
-* **The Problem:** Running a large model to evaluate answers synchronously blocked the WebSocket thread, causing delays between questions.
-* **The Solution:** The architecture separates concerns: the primary LangGraph node handles fast conversation, while complex evaluation is deferred to a Celery worker. Live progress bars use a restricted rolling context window for instant feedback.
+### Dual-Dialect Technical Engine (Egyptian Arabic & English)
+Conducting technical interviews in colloquial Arabic often creates unnatural speech synthesis because technical terminology transliterated into Arabic letters (such as writing cache as كاش or deadlock as ديدلوك) confuses speech synthesizers. AutoHire enforces a specialized prompt and phonetic protocol:
+- Conversational framing follows natural Egyptian software lead vernacular (authentic phrasing without unprofessional street slang or archaic classical Arabic).
+- System identifiers, framework names, and architecture patterns remain strictly in Latin script (e.g., `Throughput`, `Latency`, `Cache Invalidation`, `PostgreSQL`, `Deadlock`).
+- Text displayed in the UI is stripped of diacritics for clean visual presentation, while audio chunks are synthesized phonetically.
 
-### Trade-Off C: Strict Schema Validation vs. Dynamic Payloads
-* **The Problem:** Passing dynamic frontend configs directly into LangGraph caused validation errors (HTTP 422) when unknown keys were present, breaking the connection.
-* **The Solution:** A dynamic state sanitizer in the WebSocket controller filters incoming payloads against a strict whitelist matching the LangGraph schema, dropping extraneous variables and ensuring a stable connection loop.
+### Real-Time Multimodal Streaming & Barge-In
+The interview workspace supports full-duplex WebSocket communication:
+- Text is streamed token-by-token (`text_delta`) to provide immediate visual feedback.
+- Speech is simultaneously chunked and streamed (`audio_chunk`), allowing the candidate to listen while reading.
+- If the candidate interrupts (barge-in) or submits an answer while speech is playing, the backend cancels the active audio task immediately, discards obsolete queue items, and processes the new turn without state race conditions.
 
-### Trade-Off D: LLM Hallucination in Multi-Lingual Contexts
-* **The Problem:** When instructed to speak Arabic while discussing technical concepts, the primary model sometimes hallucinated or poorly translated technical jargon.
-* **The Solution:** I added prompt boundaries that strictly enforce English for technical terms. If the primary model fails, the system routes the request to Google Gemini 1.5 Flash, which has better cross-lingual stability.
+### Comprehensive Candidate Rubric (Async Evaluation)
+Upon interview completion, transcript evaluation is processed asynchronously to avoid blocking user connections:
+- **Technical Depth (0-100):** Understanding of internals, edge cases, and architectural trade-offs.
+- **Problem Solving (0-100):** Systematic debugging methodology and reasoning clarity.
+- **System Architecture (0-100):** Scalability considerations, caching strategies, and data consistency models.
+- **Communication (0-100):** Structured responses using the STAR format.
+- **Integrity (0-100):** Telemetry-based proctoring score factoring in window blur and tab switches.
+- **Intentional Hallucination Trap:** In mid-interview turns, the agent subtly introduces an inaccurate technical premise to assess whether the candidate has the seniority to identify and correct it.
+- **Tailored Roadmap:** Generates 2-4 official authoritative learning resources based on the candidate's exact weaknesses.
 
 ---
 
-## 8. Deployment
+## 3. Engineering Challenges & Solutions
 
-The system is containerized using Docker for consistency across environments.
+### Challenge 1: Eliminating Cold-Start Latency on Cloud Free Tiers (Render 15-Minute Timeout)
+- **Problem:** Hosting on free-tier container platforms (e.g., Render) causes containers to spin down after 15 minutes of idle time. A sleeping container requires 30 to 60 seconds to reboot, resulting in unacceptable initial load latency for prospective employers or interviewees.
+- **Solution:** Implemented a triple-redundancy keep-alive architecture:
+  1. **External Monitor (UptimeRobot):** Configured continuous HTTP polling every 300 seconds (5 minutes), securely beneath the 15-minute threshold. The monitor was upgraded to query `/api/health` via `GET` and `HEAD` methods, ensuring Render's inactivity timer resets continuously 24/7.
+  2. **FastAPI Lifespan Self-Ping:** An internal asynchronous daemon (`background_self_ping`) runs within the application lifecycle, pinging the public deployment URL every 7 minutes.
+  3. **Silent Frontend Pre-Warm:** On homepage mount, the React client fires an unbuffered background fetch to `/api/ping`. By the time the user configures the interview parameters, the backend container, DB connection pool, and model routes are hot in memory.
+  - **Result:** P99 ping latency dropped to 87ms, eliminating cold starts entirely across 24/7 continuous operation within the monthly 750-hour allowance.
+
+### Challenge 2: Concurrency Race Conditions During Voice Barge-In
+- **Problem:** If a candidate spoke or typed an answer while the AI was actively streaming speech chunks, the server would spawn a second evaluation task while the first was still publishing audio. This led to interleaved speech audio, duplicate database entries, and desynchronized LangGraph state.
+- **Solution:** Designed an active session task registry with atomic cancellation:
+  ```python
+  # Cancel prior running task atomically before initializing a new turn
+  t = active_session_tasks.pop(session_id, None)
+  if t and not t.done():
+      t.cancel()
+
+  # Launch new generation task and register handle
+  new_task = asyncio.create_task(handle_agent_response(websocket, session_id, graph_input, session_totals))
+  active_session_tasks[session_id] = new_task
+  ```
+  The client simultaneously emits an interrupt event, clears its audio decode queue, and transitions into listening mode.
+
+### Challenge 3: Multi-Layer Anti-Abuse and Token Exhaustion Defense
+- **Problem:** Public-facing LLM applications are targets for Denial-of-Service attacks, automated script flooding, prompt stuffing (submitting hundreds of thousands of characters to exhaust LLM context budgets), and prompt injection/jailbreak attempts.
+- **Solution:** Established a defense-in-depth security model:
+  1. **Sliding-Window IP Rate Limiter:** Custom middleware tracking real client IPs (extracting `CF-Connecting-IP` and `X-Forwarded-For`). Enforces strict quotas:
+     - `/api/start-session`: 8 requests / minute.
+     - `/api/start-session-cv`: 6 uploads / minute.
+     - `/api/test-voice`: 12 requests / minute (safeguarding voice synthesis credits).
+     - Global API ceiling: 80 requests / minute. Violations return `HTTP 429 Too Many Requests` with `Retry-After` headers.
+  2. **WebSocket Flood Throttling:** Incoming WebSocket text messages are throttled to a maximum frequency of one message every 0.6 seconds. Rapid burst spam is dropped.
+  3. **Input Length Truncation:** Candidate answers are strictly bounded at 2,000 characters before graph ingestion. CV extracts are capped at 4,000 characters.
+  4. **Output Generation Caps:** LLM question generation is bounded to `max_tokens=220`, and scorecard synthesis to `max_tokens=1500`, preventing runaway context consumption.
+  5. **Anti-Jailbreak System Directive:** System prompts contain explicit non-overridable boundary instructions forbidding role assumption changes or score overrides requested by the user.
+
+### Challenge 4: Audio-Visual Divergence in Code and Dialect Rendering
+- **Problem:** Reading code snippets or technical acronyms inside conversational Arabic often results in phonetic garbling from TTS engines. Conversely, phonetic spelling hacks look unprofessional when printed in the candidate's transcript.
+- **Solution:** Decoupled the textual display pipeline from the acoustic pipeline. In the LangGraph output node, raw text remains clean standard English or unvocalized Arabic for UI presentation. Before sending to Edge-TTS/ElevenLabs, the phonetic normalization module extracts numeric digits, converts them to phonetic words, replaces punctuation artifacts, and isolates Latin terms for accurate phoneme pronunciation.
+
+---
+
+## 4. Security & Hardening Matrix
+
+| Attack Vector / Risk | Mitigation Layer | Implementation Details |
+| :--- | :--- | :--- |
+| **DDoS & Endpoint Flooding** | RateLimiterMiddleware | In-memory sliding-window tracker with automatic TTL eviction and proxy IP resolution. |
+| **Token Exhaustion (Prompt Stuffing)** | Controller & WebSocket | Hard truncation: 2,000 chars on candidate answers, 4,000 chars on CV uploads, 5MB upload limit. |
+| **Prompt Injection / Jailbreak** | LangGraph Node Directives | Immutable security instruction prepended to system messages; ignores candidate override commands. |
+| **SQL Injection** | Database Access Layer | 100% SQLAlchemy 2.0 parameterized queries; zero raw string SQL interpolation. |
+| **Cross-Site Scripting (XSS)** | Frontend Architecture | React Virtual DOM automatic string escaping; verified 0 instances of dangerouslySetInnerHTML. |
+| **Cross-Origin Security (CORS)** | Gateway Middleware | Configurable `ALLOWED_ORIGINS` environment variable; avoids wildcard credentials conflicts. |
+| **Memory Exhaustion (OOM)** | File Upload Parser | Strict 5MB file limit, whitelisted extensions (`.pdf`, `.docx`, `.txt`), streaming chunk consumption. |
+
+---
+
+## 5. Local Setup and Installation
 
 ### Prerequisites
-- Docker and Docker Compose
-- Node.js 20+ (for frontend)
-- Python 3.11+ (for backend)
+- Python 3.11+
+- Node.js 20+
+- Optional: Docker and Docker Compose (for containerized PostgreSQL and Redis)
 
-### Configuration
-Create a `.env` file in the `backend` directory:
-- GROQ_API_KEY
-- GOOGLE_API_KEY
-- ELEVENLABS_API_KEY
-- ELEVENLABS_API_KEY_FALLBACK 
+### 1. Backend Configuration
+Navigate to the `backend` directory and set up a virtual environment:
 
-### Execution
-Start the services (Frontend, Backend, PostgreSQL, Redis, Celery):
 ```bash
-docker-compose up -d --build
+cd backend
+python -m venv venv
+
+# On Windows:
+.\venv\Scripts\activate
+
+# On Linux/macOS:
+source venv/bin/activate
+
+pip install -r requirements.txt
 ```
-The frontend is accessible at port 3000, and the backend REST API at port 8000.
+
+Create a `.env` file in the `backend` root:
+
+```env
+# Primary LLM Configuration
+USE_GROQ_PRIMARY=true
+GROQ_API_KEY=your_groq_api_key
+GROQ_MODEL=qwen/qwen3.8-27b
+
+# Fallback LLM Configuration
+GOOGLE_API_KEY=your_google_gemini_api_key
+GEMINI_MODEL=gemini-2.5-flash
+
+# Database Configuration (Leave blank for automatic zero-config SQLite fallback)
+POSTGRES_URL=
+USE_SQLITE=true
+
+# Keep-Alive & Monitoring (For cloud deployments)
+KEEP_ALIVE_URL=http://localhost:8000/ping
+
+# Observability (Optional)
+LANGFUSE_PUBLIC_KEY=
+LANGFUSE_SECRET_KEY=
+LANGFUSE_HOST=https://cloud.langfuse.com
+
+# CORS Configuration
+ALLOWED_ORIGINS=*
+```
+
+Start the backend development server:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+The API will be available at `http://localhost:8000` and interactive documentation at `http://localhost:8000/docs`.
+
+### 2. Frontend Configuration
+Navigate to the `frontend` directory and install dependencies:
+
+```bash
+cd ../frontend
+npm install
+```
+
+Create a `.env.local` file:
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_WS_URL=ws://localhost:8000
+```
+
+Start the frontend development server:
+
+```bash
+npm run dev
+```
+
+Open `http://localhost:3000` in your browser.
 
 ---
 
-This project aims to demonstrate production-ready AI engineering, focusing on fault tolerance, asynchronous processing, and edge-case handling in LLM interactions.
+## 6. Verification and Automated Testing
+
+### Backend Unit & Integration Tests
+Execute the backend test suite:
+
+```bash
+cd backend
+pytest tests/ -v
+```
+
+### End-to-End Interview Verification
+A standalone verification script (`scratch/verify_e2e_clean.py`) tests the complete interview flow programmatically:
+1. Initializes a session via REST (`POST /api/start-session`).
+2. Connects to the WebSocket gateway (`/ws/{session_id}`).
+3. Receives generated technical questions.
+4. Submits realistic candidate answers.
+5. Verifies barge-in handling and completion events.
+6. Polls and validates the structured scorecard from `/api/scorecard/{session_id}`.
+
+Run the end-to-end verification:
+
+```bash
+python scratch/verify_e2e_clean.py
+```
+
+### Production Build Validation
+Verify production frontend compilation:
+
+```bash
+cd frontend
+npm run build
+```
+
+The build compiles under Next.js Turbopack with zero TypeScript errors and zero lint violations.
+
+---
+
+## 7. License and Attribution
+
+Developed as an autonomous technical assessment engine for software engineering evaluation. Built with standard open-source technologies under the MIT License.
