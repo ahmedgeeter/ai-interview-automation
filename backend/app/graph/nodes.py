@@ -427,7 +427,14 @@ Transcript:
         try:
             eval_structured = primary_evaluator_llm.with_structured_output(ScorecardPayload)
             response_obj = await eval_structured.ainvoke([HumanMessage(content=full_prompt)])
-            payload = response_obj.model_dump() if hasattr(response_obj, 'model_dump') else response_obj.dict()
+            if hasattr(response_obj, 'model_dump'):
+                payload = response_obj.model_dump()
+            elif hasattr(response_obj, 'dict'):
+                payload = response_obj.dict()
+            elif isinstance(response_obj, dict):
+                payload = response_obj
+            else:
+                payload = dict(response_obj)
         except Exception as p_err:
             print(f"[Evaluator] Gemini structured failed: {p_err}. Trying standard prompt...")
             resp = await primary_evaluator_llm.ainvoke([HumanMessage(content=full_prompt)])

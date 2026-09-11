@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, MagicMock
 from app.graph.nodes import interviewer_node, evaluator_node
 from langchain_core.messages import HumanMessage, AIMessage
 
@@ -13,11 +13,12 @@ async def test_interviewer_node_fallback():
         "language": "en"
     }
     
-    # We mock primary LLM to fail, and fallback LLM to succeed
-    with patch("app.graph.nodes.primary_llm.ainvoke", side_effect=Exception("API Error")), \
-         patch("app.graph.nodes.fallback_llm.ainvoke", new_callable=AsyncMock) as mock_fallback:
+    # Mock primary LLM to fail, and fallback LLM to succeed
+    with patch("app.graph.nodes.primary_llm") as mock_primary, \
+         patch("app.graph.nodes.fallback_llm") as mock_fallback:
          
-        mock_fallback.return_value = AIMessage(content="Fallback response")
+        mock_primary.ainvoke = AsyncMock(side_effect=Exception("API Error"))
+        mock_fallback.ainvoke = AsyncMock(return_value=AIMessage(content="Fallback response"))
         
         result = await interviewer_node(state)
         
@@ -29,7 +30,7 @@ async def test_interviewer_node_fallback():
 async def test_evaluator_node():
     state = {
         "messages": [
-            HumanMessage(content="I use React and Node."),
+            HumanMessage(content="I use React and Node to build high scale microservices architectures."),
             AIMessage(content="Good.")
         ],
         "job_title": "Software Engineer",
@@ -50,8 +51,10 @@ async def test_evaluator_node():
         "recommended_resources": []
     }
     
-    with patch("app.graph.nodes.primary_evaluator_llm.with_structured_output") as mock_struct:
-        mock_struct.return_value.ainvoke = AsyncMock(return_value=mock_payload)
+    with patch("app.graph.nodes.primary_evaluator_llm") as mock_eval:
+        mock_struct = MagicMock()
+        mock_struct.ainvoke = AsyncMock(return_value=mock_payload)
+        mock_eval.with_structured_output.return_value = mock_struct
         
         result = await evaluator_node(state)
         assert "evaluation_payload" in result

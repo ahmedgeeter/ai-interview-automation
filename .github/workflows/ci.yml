@@ -39,13 +39,15 @@ jobs:
 
       - name: Run automated test suite
         env:
+          PYTHONPATH: "."
+          USE_SQLITE: "true"
+          POSTGRES_URL: "sqlite+aiosqlite:///./test.db"
           GOOGLE_API_KEY: "dummy_key_for_ci"
           GROQ_API_KEY: "dummy_key_for_ci"
-          POSTGRES_URL: "postgresql+asyncpg://aegra:aegra@localhost:5432/aegra"
           CELERY_BROKER_URL: "redis://localhost:6379/0"
         run: |
           cd backend
-          pytest tests/ -v
+          python -m pytest tests/ -v
 
   frontend-build:
     name: Frontend Build & Typecheck

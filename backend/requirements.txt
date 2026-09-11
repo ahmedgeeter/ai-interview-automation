@@ -22,4 +22,6 @@ langchain-openai
 celery
 redis
 pytest
+pytest-asyncio
+aiosqlite
 httpx

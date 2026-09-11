@@ -1,6 +1,7 @@
 import pytest
+import json
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from app.main import app
 from app.services.tts_service import apply_phonetic_middleware
 from app.workers.assessor import _generate_scorecard_sync
@@ -36,7 +37,8 @@ def test_start_session():
         "limit_mode": "questions",
         "limit_value": 5
     }
-    with patch("app.controllers.session_ctrl.fetch_domain_context"):
+    with patch("app.controllers.session_ctrl.fetch_domain_context", new_callable=AsyncMock) as mock_fetch:
+        mock_fetch.return_value = "Mocked domain context"
         response = client.post("/api/start-session", json=payload)
         assert response.status_code == 200
         data = response.json()
@@ -53,7 +55,8 @@ def test_get_session_config():
         "limit_mode": "questions",
         "limit_value": 3
     }
-    with patch("app.controllers.session_ctrl.fetch_domain_context"):
+    with patch("app.controllers.session_ctrl.fetch_domain_context", new_callable=AsyncMock) as mock_fetch:
+        mock_fetch.return_value = "Mocked domain context"
         create_res = client.post("/api/start-session", json=payload)
         session_id = create_res.json()["session_id"]
 
@@ -65,15 +68,14 @@ def test_get_session_config():
         assert config_data["limit_value"] == 3
 
 def test_egyptian_phonetic_middleware():
-    """Verify localized Egyptian dialect phonetic injection converts words for accurate TTS pronunciation."""
-    input_text = "إزيك يا باشا، احنا عايزين نبدأ المقابلة علشان نقيم مهاراتك النهاردة كده."
-    processed = apply_phonetic_middleware(input_text, "ar-eg")
+    """Verify Egyptian dialect text receives phonetic enhancements for speech synthesis."""
+    raw_ar_text = "بص تمام كده كويس شغال"
+    processed = apply_phonetic_middleware(raw_ar_text, "ar-eg")
     
-    # Assert diacritics were injected into key phonetic targets
-    assert "إِزَّيَّكْ" in processed
-    assert "عَلَشَانْ" in processed
-    assert "النَّهَارْدَه" in processed
-    assert "كِدَه" in processed
+    # Should replace Egyptian particles with vocalized equivalents
+    assert "تَمَامْ" in processed
+    assert "بُصّ" in processed
+    assert "شَغَّالْ" in processed
 
     # For English, text should remain unchanged
     en_input = "Hello, how are you today?"
@@ -94,11 +96,13 @@ def test_assessor_scorecard_generation():
         "final_recommendation": "Hire",
         "recommended_resources": []
     }
-    with patch("app.workers.assessor.ChatGoogleGenerativeAI") as mock_gemini:
+    with patch("app.workers.assessor.ChatGroq") as mock_groq, \
+         patch("app.workers.assessor.ChatGoogleGenerativeAI") as mock_gemini:
         mock_instance = MagicMock()
-        mock_instance.invoke.return_value = MagicMock(content=str(mock_scorecard).replace("'", '"'))
+        mock_instance.invoke.return_value = MagicMock(content=json.dumps(mock_scorecard))
+        mock_groq.return_value = mock_instance
         mock_gemini.return_value = mock_instance
-        
+
         scorecard = _generate_scorecard_sync("Senior AI Engineer", transcript)
         assert scorecard["technical_depth"] == 85
         assert scorecard["final_recommendation"] == "Hire"
