@@ -40,27 +40,31 @@ flowchart TB
     end
 
     subgraph StorageLayer["Data & Persistence"]
-        DB[(PostgreSQL / SQLite via SQLAlchemy)]
-        RedisPubSub[(Redis Pub/Sub & Broker)]
+        DB[("PostgreSQL / SQLite via SQLAlchemy")]
+        RedisPubSub[("Redis Pub/Sub & Broker")]
         AsyncAssessor["Async Evaluation Engine"]
     end
 
-    UI <-->|WebSocket Stream (text_delta, audio_chunk)| WS_Router
-    Proctor -->|tab_switch event| WS_Router
-    STT -->|Candidate Answer| UI
-    AudioPipeline <--|Base64 Audio Chunks| WS_Router
+    UI -->|"WebSocket Stream"| WS_Router
+    WS_Router -->|"Text Deltas & Audio Chunks"| UI
+    Proctor -->|"tab_switch event"| WS_Router
+    STT -->|"Candidate Answer"| UI
+    WS_Router -->|"Base64 Audio Chunks"| AudioPipeline
 
-    REST_Ctrl --> RateLimiter --> DB
+    REST_Ctrl --> RateLimiter
+    RateLimiter --> DB
     WS_Router --> StateEngine
     StateEngine --> ResearchEngine
     StateEngine --> InterviewerNode
     InterviewerNode --> SecurityGuard
-    InterviewerNode <--> GroqEngine
-    GroqEngine -.->|Automatic Failover| GeminiEngine
-    InterviewerNode --> TTS --> AudioPipeline
+    InterviewerNode -->|"Prompt Request"| GroqEngine
+    GroqEngine -->|"Token Stream"| InterviewerNode
+    GroqEngine -.->|"Automatic Failover"| GeminiEngine
+    InterviewerNode --> TTS
+    TTS --> AudioPipeline
     InterviewerNode -.-> LangfuseTracing
 
-    WS_Router -->|On Interview Concluded| AsyncAssessor
+    WS_Router -->|"On Interview Concluded"| AsyncAssessor
     AsyncAssessor --> DB
     AsyncAssessor --> RedisPubSub
     RedisPubSub --> WS_Router
