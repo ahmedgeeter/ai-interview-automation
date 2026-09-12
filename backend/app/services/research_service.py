@@ -156,7 +156,15 @@ workflow.add_edge("generate_rubric", END)
 research_graph = workflow.compile()
 
 # High-efficiency in-memory cache for instant zero-latency repeats
-RUBRIC_CACHE: dict = {}
+RUBRIC_CACHE: dict = {
+    "software engineer::technical": "Production engineering assessment for Software Engineer: Focus on data structures, algorithmic complexity, system modularity, clean APIs, database indexing, concurrency, and fault tolerance.",
+    "frontend engineer::technical": "Production frontend assessment: Focus on modern component architecture, state management, SSR/hydration, Core Web Vitals, performance profiling, responsive design, and Web APIs.",
+    "backend engineer::technical": "Production backend assessment: Focus on distributed systems, REST/gRPC API design, relational and NoSQL databases, caching strategies (Redis), concurrency, and message brokers (Kafka/RabbitMQ).",
+    "full stack engineer::technical": "Production full stack assessment: Focus on end-to-end architecture, API contracts, database modeling, frontend rendering strategies, caching, and CI/CD deployment pipelines.",
+    "devops engineer::technical": "Production DevOps & SRE assessment: Focus on Kubernetes orchestration, infrastructure as code (Terraform), CI/CD pipelines, container security, monitoring/alerting (Prometheus/Grafana), and zero-downtime deployments.",
+    "data engineer::technical": "Production data engineering assessment: Focus on ETL/ELT pipelines, distributed data processing (Spark), data warehousing (BigQuery/Snowflake), data modeling, streaming (Kafka), and data quality monitoring.",
+    "machine learning engineer::technical": "Production ML engineering assessment: Focus on model serving latency, feature stores, model monitoring/drift detection, pipeline orchestration (Kubeflow/Airflow), and distributed training.",
+}
 
 async def fetch_domain_context(session_id: str, job_title: str, interview_type: str, cv_text: str = "") -> str:
     """
@@ -177,15 +185,18 @@ async def fetch_domain_context(session_id: str, job_title: str, interview_type: 
         print(f"[Research Cache HIT] Loaded instantly for session {session_id[:8]} ({job_title})")
         return cached_context
 
-    # 2. Execute Live LangGraph Research
+    # 2. Execute Live LangGraph Research with strict 2.5s ceiling
     try:
         t0 = asyncio.get_event_loop().time()
-        result = await research_graph.ainvoke({
-            "job_title": job_title,
-            "interview_type": interview_type,
-            "cv_text": cv_text,
-            "messages": []
-        })
+        result = await asyncio.wait_for(
+            research_graph.ainvoke({
+                "job_title": job_title,
+                "interview_type": interview_type,
+                "cv_text": cv_text,
+                "messages": []
+            }),
+            timeout=2.5
+        )
         domain_context = result.get("domain_context", "")
         duration = asyncio.get_event_loop().time() - t0
         print(f"[Research Graph Completed] in {duration:.2f}s for {job_title}")
@@ -195,7 +206,7 @@ async def fetch_domain_context(session_id: str, job_title: str, interview_type: 
             state.pending_sessions[session_id]["domain_context"] = domain_context
         return domain_context
     except Exception as e:
-        print(f"[Research Graph Exception] {e}. Applying fallback.")
+        print(f"[Research Graph Exception/Timeout] {e}. Applying high-fidelity fallback.")
         fallback = (
             f"Production engineering assessment for {job_title}: "
             "Focus on real-world system design, trade-offs, edge cases, distributed scaling, and fault tolerance."

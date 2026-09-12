@@ -6,7 +6,7 @@ import {
   Briefcase, FileText, UploadCloud, Globe, Moon, Sun,
   ArrowRight, ArrowLeft, ChevronRight, CheckCircle2, Sparkles,
   Volume2, ShieldCheck, Zap, Sliders, Play, Square,
-  Cpu, Terminal, Layers, Clock, AlertCircle, FileCheck, Check, Users, ShieldAlert, Code2
+  Cpu, Terminal, Layers, Clock, AlertCircle, FileCheck, Check, Users, ShieldAlert, Code2, RefreshCw
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -115,6 +115,8 @@ export default function SetupPage() {
   const [isBooting, setIsBooting] = useState(false);
   const [bootLog, setBootLog] = useState<string[]>([]);
   const [bootProgress, setBootProgress] = useState(0);
+  const [bootError, setBootError] = useState<string | null>(null);
+  const bootAbortRef = useRef<AbortController | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const isRtl = locale === "ar";
@@ -172,16 +174,43 @@ export default function SetupPage() {
     unlockAudioContext().catch(() => {});
 
     setIsBooting(true);
+    setBootError(null);
     setBootLog([]);
-    setBootProgress(15);
+    setBootProgress(20);
+
+    const abortCtrl = new AbortController();
+    bootAbortRef.current = abortCtrl;
+    const abortTimeout = setTimeout(() => {
+      abortCtrl.abort();
+    }, 28000); // 28s network safety ceiling
+
+    let progressTimer: NodeJS.Timeout | null = null;
+    let elapsedTimer1: NodeJS.Timeout | null = null;
+    let elapsedTimer2: NodeJS.Timeout | null = null;
 
     try {
-      addLog(isRtl ? "تهيئة بيئة المقابلة..." : "Initializing session environment...");
+      addLog(isRtl ? "تهيئة بيئة المقابلة المخصصة..." : "Initializing session environment...");
       const effectiveJob = useCustomJob && customJob.trim() ? customJob.trim() : jobTitle;
 
-      await new Promise(r => setTimeout(r, 300));
-      setBootProgress(40);
-      addLog(isRtl ? "تجهيز الأسئلة ومعايير التقييم..." : "Preparing assessment questions & criteria...");
+      await new Promise(r => setTimeout(r, 200));
+      setBootProgress(36);
+      addLog(isRtl ? "تجهيز معايير التقييم والأسئلة التقنية..." : "Preparing assessment questions & criteria...");
+
+      // Dynamic smooth progress ticker while backend processes request
+      let currentProgress = 36;
+      progressTimer = setInterval(() => {
+        currentProgress = Math.min(currentProgress + 2, 72);
+        setBootProgress(currentProgress);
+      }, 250);
+
+      // Contextual status updates if cloud container is cold-booting
+      elapsedTimer1 = setTimeout(() => {
+        addLog(isRtl ? "جاري تدقيق السيناريوهات الهندسية مع السيرفر..." : "Calibrating scenario blueprints...");
+      }, 2500);
+
+      elapsedTimer2 = setTimeout(() => {
+        addLog(isRtl ? "السيرفر السحابي يستيقظ، يرجى الانتظار ثوانٍ معدودة..." : "Synchronizing cloud server instance, please wait...");
+      }, 6000);
 
       let res: Response;
       if (mode === "cv" && cvFile) {
@@ -194,11 +223,16 @@ export default function SetupPage() {
         fd.append("limit_value", limitValue.toString());
         fd.append("max_questions", limitMode === "questions" ? limitValue.toString() : "999");
         fd.append("cv_file", cvFile);
-        res = await fetch(`${API_URL}/api/start-session-cv`, { method: "POST", body: fd });
+        res = await fetch(`${API_URL}/api/start-session-cv`, {
+          method: "POST",
+          body: fd,
+          signal: abortCtrl.signal,
+        });
       } else {
         res = await fetch(`${API_URL}/api/start-session`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: abortCtrl.signal,
           body: JSON.stringify({
             job_title: effectiveJob,
             persona,
@@ -211,22 +245,46 @@ export default function SetupPage() {
         });
       }
 
-      setBootProgress(70);
+      if (progressTimer) clearInterval(progressTimer);
+      if (elapsedTimer1) clearTimeout(elapsedTimer1);
+      if (elapsedTimer2) clearTimeout(elapsedTimer2);
+      clearTimeout(abortTimeout);
+
+      if (!res.ok) {
+        let errDetail = `Server returned ${res.status}`;
+        try {
+          const errData = await res.json();
+          if (errData.detail) errDetail = errData.detail;
+        } catch {}
+        throw new Error(errDetail);
+      }
+
+      setBootProgress(82);
       const data = await res.json();
       if (!data.session_id) throw new Error(data.detail || "No session ID returned");
 
       addLog(isRtl ? "فحص إعدادات الصوت وقنوات الاتصال..." : "Configuring audio channels & connection...");
-      await new Promise(r => setTimeout(r, 300));
-      setBootProgress(95);
+      await new Promise(r => setTimeout(r, 200));
+      setBootProgress(94);
 
-      addLog(isRtl ? "اكتمل الإعداد — جاري دخول قاعة المقابلة..." : "Ready. Entering interview room...");
-      await new Promise(r => setTimeout(r, 400));
+      addLog(isRtl ? "اكتمل الإعداد بنجاح — جاري دخول قاعة المقابلة..." : "Ready. Entering interview room...");
+      await new Promise(r => setTimeout(r, 300));
       setBootProgress(100);
 
       router.push(`/interview/${data.session_id}`);
     } catch (e: any) {
-      addLog(isRtl ? `حدث خطأ: ${e.message || "تعذر الاتصال"}` : `Error: ${e.message || "Connection failed"}`);
-      setTimeout(() => setIsBooting(false), 2500);
+      if (progressTimer) clearInterval(progressTimer);
+      if (elapsedTimer1) clearTimeout(elapsedTimer1);
+      if (elapsedTimer2) clearTimeout(elapsedTimer2);
+      clearTimeout(abortTimeout);
+
+      const isAbort = e.name === "AbortError";
+      const errorMsg = isAbort
+        ? (isRtl ? "استغرق السيرفر وقتاً طويلاً للاستجابة. اضغط أدناه لإعادة المحاولة فوراً." : "Connection timed out. Click retry to connect now.")
+        : (e.message || (isRtl ? "تعذر الاتصال بالسيرفر" : "Connection failed"));
+
+      setBootError(errorMsg);
+      addLog(isRtl ? `تنبيه: ${errorMsg}` : `Notice: ${errorMsg}`);
     }
   };
 
@@ -245,32 +303,77 @@ export default function SetupPage() {
               </div>
               <div>
                 <h3 className="text-sm font-bold text-white">AutoHire</h3>
-                <p className="text-[11px] text-zinc-400">Preparing Session</p>
+                <p className="text-[11px] text-zinc-400">
+                  {bootError
+                    ? (isRtl ? "حدث خطأ أثناء الإعداد" : "Setup Paused")
+                    : (isRtl ? "جاري تجهيز المقابلة" : "Preparing Session")}
+                </p>
               </div>
             </div>
             <span className="text-xs font-mono font-bold text-indigo-400">{bootProgress}%</span>
           </div>
 
           {/* Progress Bar */}
-          <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden mb-6">
+          <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden mb-6 relative">
             <div
-              className="h-full bg-gradient-to-r from-indigo-500 via-violet-500 to-emerald-400 transition-all duration-300 rounded-full"
+              className={`h-full transition-all duration-300 rounded-full ${
+                bootError
+                  ? "bg-amber-500"
+                  : "bg-gradient-to-r from-indigo-500 via-violet-500 to-emerald-400"
+              }`}
               style={{ width: `${bootProgress}%` }}
             />
           </div>
 
           {/* Terminal Matrix Log */}
-          <div className="bg-black/60 rounded-xl p-4 border border-white/5 font-mono text-xs space-y-2 min-h-[140px] flex flex-col justify-end">
+          <div className="bg-black/60 rounded-xl p-4 border border-white/5 font-mono text-xs space-y-2 min-h-[140px] flex flex-col justify-end overflow-hidden">
             {bootLog.map((log, idx) => (
               <div key={idx} className="flex items-start gap-2 text-zinc-300 animate-fade-up">
                 <span className="text-indigo-400 select-none">›</span>
                 <span>{log}</span>
               </div>
             ))}
-            <div className="flex items-center gap-2 text-indigo-400">
-              <span className="animate-pulse">_</span>
-            </div>
+            {!bootError && (
+              <div className="flex items-center gap-2 text-indigo-400">
+                <span className="animate-pulse">_</span>
+              </div>
+            )}
           </div>
+
+          {/* Error Actions or Cancel Link */}
+          {bootError ? (
+            <div className="mt-6 flex flex-col gap-2 animate-fade-up">
+              <button
+                onClick={startSession}
+                className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-2"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                {isRtl ? "إعادة المحاولة الآن" : "Retry Now"}
+              </button>
+              <button
+                onClick={() => {
+                  bootAbortRef.current?.abort();
+                  setIsBooting(false);
+                  setBootError(null);
+                }}
+                className="w-full py-2 px-4 text-xs text-zinc-400 hover:text-white transition-colors"
+              >
+                {isRtl ? "إلغاء والعودة للإعدادات" : "Cancel and Return to Setup"}
+              </button>
+            </div>
+          ) : (
+            <div className="mt-4 flex justify-center">
+              <button
+                onClick={() => {
+                  bootAbortRef.current?.abort();
+                  setIsBooting(false);
+                }}
+                className="text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                {isRtl ? "إلغاء والعودة" : "Cancel and return"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
