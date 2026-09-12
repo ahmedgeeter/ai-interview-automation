@@ -232,11 +232,11 @@ async def get_session_config(session_id: str, db: AsyncSession = Depends(get_db)
 async def test_voice(lang: str):
     """Generate a quick sample audio for the requested language."""
     if lang == "ar":
-        text = "مرحباً بك، أنا جاهز لإجراء المقابلة معك."
+        text = "مرحباً بك، أنا حامد وسأكون محاورك في هذه المقابلة التقنية."
     elif lang == "ar-eg":
-        text = "أهلاً بيك، أنا جاهز عشان نبدأ المقابلة مع بعض."
+        text = "أهلاً بيك يا باشمهندس، أنا شاكر وهكون معاك في المقابلة التقنية النهاردة."
     else:
-        text = "Hello, I am ready to start the interview with you."
+        text = "Hello, I am Charlie and I will be conducting your technical interview today."
         
     audio_b64, _ = await generate_full_audio_from_text(text, lang)
     return {"audio_base64": audio_b64}

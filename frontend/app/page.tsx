@@ -75,7 +75,7 @@ const VOICES = [
     code: "ar" as const,
     label: "Modern Standard Arabic",
     labelAr: "عربي فصحى",
-    voiceName: "George / Hamed · Arabic",
+    voiceName: "Hamed · Arabic Lead",
     badge: "Standard",
     badgeAr: "معياري"
   },

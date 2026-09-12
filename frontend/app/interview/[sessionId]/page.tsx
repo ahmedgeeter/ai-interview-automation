@@ -108,16 +108,16 @@ function AudioUnlockSplash({
         </p>
         <h1 className="text-xl font-black text-slate-900 dark:text-stone-50 mb-2">{jobTitle}</h1>
         <p className="text-sm text-slate-500 dark:text-stone-400 mb-8 leading-relaxed">
-          {voiceLang === "ar"
-            ? "انقر للدخول وبدء الجلسة الصوتية"
-            : "Click to enter and enable audio playback"}
+          {voiceLang.startsWith("ar")
+            ? `المحاور الصوتي: ${voiceLang === "ar-eg" ? "شاكر (قائد تقني مصري)" : "حامد (عربي فصحى)"} — انقر للدخول وبدء الجلسة الصوتية`
+            : "Interviewer: Charlie (Tech Lead) — Click to enter and enable audio playback"}
         </p>
         <button
           onClick={onEnter}
           className="w-full flex items-center justify-center gap-3 bg-slate-900 dark:bg-stone-100 hover:bg-slate-800 dark:hover:bg-stone-200 text-white dark:text-stone-900 font-bold py-4 rounded-xl transition-colors text-sm"
         >
           <Play className="w-4 h-4" />
-          {voiceLang === "ar" ? "ادخل غرفة المقابلة" : "Enter Interview Room"}
+          {voiceLang.startsWith("ar") ? "ادخل غرفة المقابلة" : "Enter Interview Room"}
         </button>
       </div>
     </div>
@@ -317,8 +317,8 @@ export default function InterviewPage() {
                   onClick={isAudioPaused ? resumeAudio : pauseAudio}
                   title={
                     isAudioPaused
-                      ? (voiceLang.startsWith("ar") ? "استئناف صوت المحاور (Resume)" : "Resume Interviewer Voice")
-                      : (voiceLang.startsWith("ar") ? "إيقاف مؤقت لصوت المحاور (Pause)" : "Pause Interviewer Voice")
+                      ? (voiceLang === "ar-eg" ? "استئناف صوت المحاور (شاكر)" : voiceLang === "ar" ? "استئناف صوت المحاور (حامد)" : "Resume Interviewer Voice (Charlie)")
+                      : (voiceLang === "ar-eg" ? "إيقاف مؤقت لصوت شاكر" : voiceLang === "ar" ? "إيقاف مؤقت لصوت حامد" : "Pause Interviewer Voice (Charlie)")
                   }
                   aria-label={isAudioPaused ? "Resume Interviewer Voice" : "Pause Interviewer Voice"}
                   className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold transition-all ${
@@ -347,14 +347,14 @@ export default function InterviewPage() {
             <div className="relative">
               <button onClick={() => setShowLangMenu(!showLangMenu)} className="flex items-center gap-1 px-2 py-1 rounded border border-slate-200 dark:border-stone-800 text-[11px] font-bold text-slate-600 dark:text-stone-400 hover:bg-slate-100 dark:hover:bg-stone-800 transition-colors">
                 <Globe className="w-3 h-3" />
-                {voiceLang === "en" ? "EN" : voiceLang === "ar-eg" ? "EG" : "AR"}
+                {voiceLang === "en" ? "EN (Charlie)" : voiceLang === "ar-eg" ? "EG (شاكر)" : "AR (حامد)"}
                 <ChevronDown className="w-2.5 h-2.5" />
               </button>
               {showLangMenu && (
-                <div className="absolute top-full mt-1 end-0 bg-white dark:bg-stone-900 border border-slate-200 dark:border-stone-800 rounded-lg shadow-xl z-50 overflow-hidden min-w-[200px] p-1">
-                  {renderLangOption("en", "English")}
-                  {renderLangOption("ar", "عربي فصحى")}
-                  {renderLangOption("ar-eg", "عربي مصري")}
+                <div className="absolute top-full mt-1 end-0 bg-white dark:bg-stone-900 border border-slate-200 dark:border-stone-800 rounded-lg shadow-xl z-50 overflow-hidden min-w-[210px] p-1">
+                  {renderLangOption("ar-eg", locale === "ar" ? "شاكر · مصري (Tech Lead)" : "Shakir · Egyptian Lead")}
+                  {renderLangOption("ar", locale === "ar" ? "حامد · عربي فصحى" : "Hamed · Standard Arabic")}
+                  {renderLangOption("en", locale === "ar" ? "تشارلي · إنجليزي تقني" : "Charlie · English Lead")}
                 </div>
               )}
             </div>
@@ -547,8 +547,12 @@ export default function InterviewPage() {
                         ? (voiceLang.startsWith("ar") ? "يفكر..." : "Processing...")
                         : (voiceLang.startsWith("ar") ? "جاهز" : "Ready")}
                   </div>
-                  <div className="text-[10px] text-slate-400 dark:text-stone-600 mt-0.5">
-                    {voiceLang === "en" ? "Charlie · Turbo EN" : voiceLang === "ar-eg" ? "Liam · Turbo EG" : "George · Turbo AR"}
+                  <div className="text-[10px] text-slate-400 dark:text-stone-600 mt-0.5 font-medium">
+                    {voiceLang === "ar-eg"
+                      ? "شاكر · مصري تقني (Shakir · Tech Lead)"
+                      : voiceLang === "ar"
+                      ? "حامد · عربي فصحى (Hamed · Arabic Lead)"
+                      : "Charlie · English Lead"}
                   </div>
                 </div>
               </div>
