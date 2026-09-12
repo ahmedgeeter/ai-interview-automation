@@ -6,7 +6,7 @@ class StartSessionRequest(BaseModel):
     persona: Optional[str] = Field("balanced", max_length=30)
     interview_type: Optional[str] = Field("technical", max_length=30)
     language: Optional[str] = Field("en", max_length=20)
-    max_questions: Optional[int] = Field(5, ge=1, le=20)
+    max_questions: Optional[int] = Field(5, ge=1, le=1000)
     limit_mode: Optional[str] = Field("questions", max_length=20)
     limit_value: Optional[int] = Field(5, ge=1, le=60)
 

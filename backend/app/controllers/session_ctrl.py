@@ -70,11 +70,15 @@ async def start_session(req: StartSessionRequest, background_tasks: BackgroundTa
         "messages": []
     }
 
-    db_session = DbSession(id=session_id, job_role=req.job_title, config=session_config, status="in_progress")
-    db.add(db_session)
-    await db.commit()
-
     state.pending_sessions[session_id] = session_config
+
+    try:
+        db_session = DbSession(id=session_id, job_role=req.job_title, config=session_config, status="in_progress")
+        db.add(db_session)
+        await db.commit()
+    except Exception as db_err:
+        print(f"[SessionCtrl] DB persistence warning: {db_err}. Session active in memory.")
+
     return {"session_id": session_id}
 
 @router.post("/start-session-cv")
@@ -130,11 +134,15 @@ async def start_session_cv(
         "messages": []
     }
 
-    db_session = DbSession(id=session_id, job_role=job_title, config=session_config, status="in_progress")
-    db.add(db_session)
-    await db.commit()
-
     state.pending_sessions[session_id] = session_config
+
+    try:
+        db_session = DbSession(id=session_id, job_role=job_title, config=session_config, status="in_progress")
+        db.add(db_session)
+        await db.commit()
+    except Exception as db_err:
+        print(f"[SessionCtrl] DB persistence warning: {db_err}. Session active in memory.")
+
     return {"session_id": session_id}
 
 @router.get("/scorecard/{session_id}")
@@ -198,13 +206,17 @@ async def get_session_config(session_id: str, db: AsyncSession = Depends(get_db)
     """Return session configuration for the interview page (persisted & resilient)."""
     session = state.pending_sessions.get(session_id)
     if not session:
-        # Restore from PostgreSQL if server restarted
-        result = await db.execute(select(DbSession).filter(DbSession.id == session_id))
-        db_session = result.scalars().first()
-        if db_session and db_session.config:
-            session = db_session.config
-            state.pending_sessions[session_id] = session
-        else:
+        # Restore from DB if server restarted
+        try:
+            result = await db.execute(select(DbSession).filter(DbSession.id == session_id))
+            db_session = result.scalars().first()
+            if db_session and db_session.config:
+                session = db_session.config
+                state.pending_sessions[session_id] = session
+            else:
+                return {"error": "Session not found"}
+        except Exception as e:
+            print(f"[SessionConfig] DB query notice: {e}")
             return {"error": "Session not found"}
             
     return {

@@ -45,11 +45,18 @@ else:
     ASYNC_POSTGRES_URL = get_async_url(RAW_URL)
     SYNC_POSTGRES_URL = get_sync_url(RAW_URL)
 
+connect_args = {}
+if "postgresql+asyncpg://" in ASYNC_POSTGRES_URL:
+    connect_args["timeout"] = 5.0
+    if not any(h in ASYNC_POSTGRES_URL for h in ["localhost", "127.0.0.1", "postgres:5432"]):
+        connect_args["ssl"] = True
+
 engine = create_async_engine(
     ASYNC_POSTGRES_URL,
     echo=False,
     future=True,
-    pool_pre_ping=True
+    pool_pre_ping=True,
+    connect_args=connect_args
 )
 
 async_session_maker = sessionmaker(
@@ -70,6 +77,40 @@ except Exception:
     sync_engine = None
     sync_session_maker = None
 
+def fallback_to_sqlite():
+    """Dynamically swap engine and session makers to local SQLite if PostgreSQL fails."""
+    global engine, async_session_maker, sync_engine, sync_session_maker, ASYNC_POSTGRES_URL, SYNC_POSTGRES_URL
+    ASYNC_POSTGRES_URL = "sqlite+aiosqlite:///./autohire.db"
+    SYNC_POSTGRES_URL = "sqlite:///./autohire.db"
+    engine = create_async_engine(
+        ASYNC_POSTGRES_URL,
+        echo=False,
+        future=True,
+        pool_pre_ping=True
+    )
+    async_session_maker = sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
+    try:
+        sync_engine = create_engine(
+            SYNC_POSTGRES_URL,
+            echo=False,
+            pool_pre_ping=True
+        )
+        sync_session_maker = sessionmaker(
+            sync_engine, expire_on_commit=False
+        )
+    except Exception:
+        sync_engine = None
+        sync_session_maker = None
+
 async def get_db():
-    async with async_session_maker() as session:
-        yield session
+    global engine, async_session_maker
+    try:
+        async with async_session_maker() as session:
+            yield session
+    except Exception as e:
+        print(f"[Database Error] Primary DB session failed: {e}. Activating SQLite fallback.")
+        fallback_to_sqlite()
+        async with async_session_maker() as session:
+            yield session

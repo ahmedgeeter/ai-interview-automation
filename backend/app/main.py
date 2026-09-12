@@ -29,9 +29,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.models import state
-from app.models.database import engine
+from app.models.database import engine, fallback_to_sqlite
 from app.models.models import Base
 from app.controllers import session_ctrl, ws_ctrl
+from fastapi.responses import JSONResponse
 
 async def background_self_ping():
     """
@@ -72,13 +73,35 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(Base.metadata.create_all)
         print("Database tables created successfully.")
     except Exception as e:
-        print(f"Failed to create database tables: {e}")
+        print(f"[DB Warning] Could not connect to primary database: {e}. Activating SQLite fallback immediately.")
+        fallback_to_sqlite()
+        try:
+            from app.models.database import engine as sqlite_engine
+            async with sqlite_engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            print("SQLite fallback database initialized successfully.")
+        except Exception as sqlite_err:
+            print(f"[DB Fatal] SQLite fallback initialization failed: {sqlite_err}")
 
     ping_task = asyncio.create_task(background_self_ping())
     yield
     ping_task.cancel()
 
 app = FastAPI(title="AI Engineering Interviewer", lifespan=lifespan)
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    """Ensure any uncaught exception always returns CORS headers to prevent browser fetch blocks."""
+    import traceback
+    traceback.print_exc()
+    response = JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal Server Error: {str(exc)}"}
+    )
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
 
 from app.middleware.rate_limiter import RateLimiterMiddleware
 
