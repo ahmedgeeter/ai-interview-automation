@@ -27,6 +27,16 @@ function getAudio(): HTMLAudioElement {
   return _audio as HTMLAudioElement;
 }
 
+let _onUnlockCallbacks: Array<() => void> = [];
+
+export function onAudioUnlocked(cb: () => void) {
+  if (_isUnlocked) {
+    try { cb(); } catch {}
+  } else {
+    _onUnlockCallbacks.push(cb);
+  }
+}
+
 /** Call this inside a user click/touch event to unlock audio for the session. */
 export async function unlockAudioContext(): Promise<void> {
   if (typeof window === "undefined") return;
@@ -38,6 +48,10 @@ export async function unlockAudioContext(): Promise<void> {
     audio.src = "data:audio/mpeg;base64,//NExAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
     await audio.play();
     console.log("[Audio] HTML5 Audio unlocked successfully via user gesture");
+    _onUnlockCallbacks.forEach(cb => {
+      try { cb(); } catch {}
+    });
+    _onUnlockCallbacks = [];
   } catch (e) {
     console.error("[Audio] Unlock error:", e);
   }

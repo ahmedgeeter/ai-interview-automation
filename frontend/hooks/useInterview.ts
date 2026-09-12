@@ -6,7 +6,9 @@ import {
   stopCurrentAudio as stopAudio, 
   pauseAudio as pauseAudioMgr, 
   resumeAudio as resumeAudioMgr, 
-  isAudioUnlocked 
+  isAudioUnlocked,
+  onAudioUnlocked,
+  unlockAudioContext 
 } from "@/lib/audioManager";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -138,6 +140,36 @@ export function useInterview(
     audioQueue.current.push(base64Audio);
     processAudioQueue();
   }, [processAudioQueue]);
+
+  const flushAudioQueue = useCallback(() => {
+    if (!isPlayingAudio.current && audioQueue.current.length > 0) {
+      processAudioQueue();
+    }
+  }, [processAudioQueue]);
+
+  // Immediately play queued audio as soon as audio context unlocks via user gesture
+  useEffect(() => {
+    onAudioUnlocked(() => {
+      flushAudioQueue();
+    });
+
+    const handleInteraction = async () => {
+      if (!isAudioUnlocked()) {
+        await unlockAudioContext();
+      }
+      flushAudioQueue();
+    };
+
+    window.addEventListener("click", handleInteraction);
+    window.addEventListener("touchstart", handleInteraction);
+    window.addEventListener("keydown", handleInteraction);
+
+    return () => {
+      window.removeEventListener("click", handleInteraction);
+      window.removeEventListener("touchstart", handleInteraction);
+      window.removeEventListener("keydown", handleInteraction);
+    };
+  }, [flushAudioQueue]);
 
   const pauseAudio = useCallback(() => {
     pauseAudioMgr();
@@ -396,7 +428,7 @@ export function useInterview(
     messages, isConnected, isTyping, turnState, isAiSpeaking, isListening, isWakingUpServer,
     questionCount, liveScores, telemetry, streamingText, sessionConfig, pendingAudio, setPendingAudio,
     sendMessage, sendEndInterview, changeLanguage, handleInterrupt, playAudio: queueAudioChunk,
-    toggleListening, stopListening, stopCurrentAudio, setIsAiSpeaking,
+    flushAudioQueue, toggleListening, stopListening, stopCurrentAudio, setIsAiSpeaking,
     isAudioPaused, pauseAudio, resumeAudio, togglePauseAudio
   };
 }

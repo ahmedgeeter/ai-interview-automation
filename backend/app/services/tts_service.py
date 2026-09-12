@@ -61,11 +61,8 @@ class ElevenLabsProvider(BaseTTSProvider):
             print(f"[ElevenLabsProvider] Rotated to key index: {ElevenLabsProvider._shared_key_idx}")
 
     def _get_voice_id(self, language: str) -> str:
-        if language == "ar-eg":
-            # Liam: Energetic, natural conversational Egyptian/Arabic (Turbo EG in UI)
-            return os.getenv("ELEVENLABS_EGYPTIAN_VOICE_ID", "TX3LPaxmHKxFdv7VOQHJ")
-        elif language == "ar":
-            # George: Warm, deep, articulate Arabic storyteller (Turbo AR in UI)
+        if language in ("ar-eg", "ar"):
+            # George (JBFqnCBsd6RMkjVDRZzb): Articulate, deep, authoritative Arabic Tech Lead
             return os.getenv("ELEVENLABS_ARABIC_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb")
         # Charlie: Deep, confident energetic English (Turbo EN in UI)
         return os.getenv("ELEVENLABS_VOICE_ID", "IKne3meq5aSn9XLyUdCD")
@@ -79,12 +76,15 @@ class ElevenLabsProvider(BaseTTSProvider):
             raise ValueError("No ElevenLabs API key configured")
         
         voice_id = self._get_voice_id(voice)
-        # optimize_streaming_latency=3 cuts audio latency to sub-250ms on turbo/flash models
+        # optimize_streaming_latency=3 cuts audio latency to sub-250ms
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?optimize_streaming_latency=3"
         
-        models_to_try = [self.model_id]
-        if self.model_id != "eleven_multilingual_v2":
-            models_to_try.append("eleven_multilingual_v2")
+        if voice in ("ar-eg", "ar"):
+            models_to_try = ["eleven_multilingual_v2", "eleven_flash_v2_5"]
+        else:
+            models_to_try = [self.model_id]
+            if self.model_id != "eleven_multilingual_v2":
+                models_to_try.append("eleven_multilingual_v2")
 
         client = get_http_client()
         attempts = max(1, len(self.keys))
@@ -251,8 +251,10 @@ def apply_phonetic_middleware(text: str, language: str) -> str:
     return processed
 
 def get_voice_for_language(language: str) -> str:
-    if language in ("ar", "ar-eg"):
-        return "ar-EG-SalmaNeural"
+    if language == "ar-eg":
+        return "ar-EG-ShakirNeural"  # Authentic Egyptian Male Tech Lead
+    elif language == "ar":
+        return "ar-SA-HamedNeural"   # Professional Standard Arabic Male
     return "en-US-ChristopherNeural"
 
 def split_into_sentences(text: str) -> list[str]:
@@ -280,13 +282,19 @@ async def generate_audio_chunks_from_text(text: str, language: str = "en") -> As
         audio_payload_text = apply_phonetic_middleware(sentence, language)
         audio_bytes = None
         try:
-            audio_bytes = await _eleven_provider.generate_full_audio(audio_payload_text, language)
+            audio_bytes = await asyncio.wait_for(
+                _eleven_provider.generate_full_audio(audio_payload_text, language),
+                timeout=4.5
+            )
         except Exception as e:
-            print(f"[TTS] ElevenLabs failed: {e}. Trying EdgeTTS...")
+            print(f"[TTS] ElevenLabs bypassed or timed out ({e}). Utilizing native neural voice ({voice})...")
             try:
-                audio_bytes = await _edge_provider.generate_full_audio(audio_payload_text, voice)
+                audio_bytes = await asyncio.wait_for(
+                    _edge_provider.generate_full_audio(audio_payload_text, voice),
+                    timeout=5.0
+                )
             except Exception as e2:
-                print(f"[TTS] EdgeTTS failed: {e2}. Trying Fallback gTTS...")
+                print(f"[TTS] EdgeTTS failed ({e2}). Trying Fallback gTTS...")
                 audio_bytes = await _fallback_provider.generate_full_audio(audio_payload_text, voice)
             
         if audio_bytes:
@@ -304,11 +312,17 @@ async def generate_full_audio_from_text(text: str, language: str = "en") -> Tupl
     audio_payload_text = apply_phonetic_middleware(text, language)
     audio_bytes = None
     try:
-        audio_bytes = await _eleven_provider.generate_full_audio(audio_payload_text, language)
+        audio_bytes = await asyncio.wait_for(
+            _eleven_provider.generate_full_audio(audio_payload_text, language),
+            timeout=5.0
+        )
     except Exception as e:
-        print(f"[TTS] ElevenLabs failed: {e}. Trying EdgeTTS...")
+        print(f"[TTS] ElevenLabs bypassed ({e}). Utilizing native neural voice ({voice})...")
         try:
-            audio_bytes = await _edge_provider.generate_full_audio(audio_payload_text, voice)
+            audio_bytes = await asyncio.wait_for(
+                _edge_provider.generate_full_audio(audio_payload_text, voice),
+                timeout=5.0
+            )
         except Exception as e2:
             print(f"[TTS] EdgeTTS failed: {e2}. Trying Fallback gTTS...")
             audio_bytes = await _fallback_provider.generate_full_audio(audio_payload_text, voice)

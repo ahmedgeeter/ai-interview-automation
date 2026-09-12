@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useInterview } from "@/hooks/useInterview";
-import { unlockAudioContext } from "@/lib/audioManager";
+import { unlockAudioContext, isAudioUnlocked } from "@/lib/audioManager";
 import {
   Mic, MicOff, Send, Volume2, VolumeX, Square, Moon, Sun,
   Globe, ChevronDown, Loader2, User, UserCheck, AlertTriangle,
@@ -135,7 +135,7 @@ export default function InterviewPage() {
   const [isVoiceMuted, setIsVoiceMuted] = useState(false);
   const [voiceLang, setVoiceLang] = useState<"en" | "ar" | "ar-eg">("en");
   const [showLangMenu, setShowLangMenu] = useState(false);
-  const [audioUnlocked, setAudioUnlocked] = useState(false);
+  const [audioUnlocked, setAudioUnlocked] = useState(() => isAudioUnlocked());
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -143,7 +143,7 @@ export default function InterviewPage() {
   const {
     messages, isConnected, isTyping, isAiSpeaking, isListening, isWakingUpServer,
     questionCount, liveScores, streamingText, sessionConfig,
-    pendingAudio, setPendingAudio, playAudio, turnState,
+    pendingAudio, setPendingAudio, playAudio, flushAudioQueue, turnState,
     sendMessage, sendEndInterview, changeLanguage,
     toggleListening, stopListening, stopCurrentAudio, setIsAiSpeaking,
     isAudioPaused, pauseAudio, resumeAudio, togglePauseAudio,
@@ -202,7 +202,8 @@ export default function InterviewPage() {
     await unlockAudioContext();
     // 2. Mark as unlocked
     setAudioUnlocked(true);
-    // 3. Play any pending audio that arrived while waiting
+    // 3. Immediately flush queued audio chunks
+    flushAudioQueue();
     if (pendingAudio) {
       const audioToPlay = pendingAudio;
       setPendingAudio(null);
@@ -210,7 +211,7 @@ export default function InterviewPage() {
         playAudio(audioToPlay);
       }, 50);
     }
-  }, [pendingAudio, setPendingAudio, playAudio]);
+  }, [pendingAudio, setPendingAudio, playAudio, flushAudioQueue]);
 
   const handleMuteToggle = () => {
     setIsVoiceMuted(!isVoiceMuted);

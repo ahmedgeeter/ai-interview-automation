@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
+import { unlockAudioContext } from "@/lib/audioManager";
 
 const JOB_ROLES = [
   {
@@ -65,8 +66,8 @@ const VOICES = [
   {
     code: "ar-eg" as const,
     label: "Egyptian Arabic",
-    labelAr: "مصري تقني",
-    voiceName: "Liam · Arabic (EG)",
+    labelAr: "مصري تقني أصيل",
+    voiceName: "Shakir · Egyptian Tech Lead",
     badge: "Recommended",
     badgeAr: "موصى به"
   },
@@ -74,7 +75,7 @@ const VOICES = [
     code: "ar" as const,
     label: "Modern Standard Arabic",
     labelAr: "عربي فصحى",
-    voiceName: "George · Arabic (MSA)",
+    voiceName: "George / Hamed · Arabic",
     badge: "Standard",
     badgeAr: "معياري"
   },
@@ -167,6 +168,9 @@ export default function SetupPage() {
   };
 
   const startSession = async () => {
+    // Pre-unlock Web Audio context on user button click gesture
+    unlockAudioContext().catch(() => {});
+
     setIsBooting(true);
     setBootLog([]);
     setBootProgress(15);
