@@ -201,6 +201,7 @@ async def get_scorecard(session_id: str, db: AsyncSession = Depends(get_db)):
         print(f"Error fetching scorecard for {session_id}: {e}")
         return {"error": "Session not found", "status": "not_found"}
 
+@router.get("/session/{session_id}")
 @router.get("/session/{session_id}/config")
 async def get_session_config(session_id: str, db: AsyncSession = Depends(get_db)):
     """Return session configuration for the interview page (persisted & resilient)."""

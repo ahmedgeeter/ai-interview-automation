@@ -24,7 +24,7 @@ export default function ScorecardPage() {
   // Pre-fetch session config to obtain exact job title
   useEffect(() => {
     if (!sessionId) return;
-    fetch(`${API_URL}/api/session/${sessionId}`)
+    fetch(`${API_URL}/api/session/${sessionId}/config`)
       .then(res => res.json())
       .then(data => {
         if (data && data.job_title) setJobTitle(data.job_title);
