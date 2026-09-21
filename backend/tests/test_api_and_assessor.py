@@ -106,3 +106,43 @@ def test_assessor_scorecard_generation():
         scorecard = _generate_scorecard_sync("Senior AI Engineer", transcript)
         assert scorecard["technical_depth"] == 85
         assert scorecard["final_recommendation"] == "Hire"
+
+def test_file_signature_validation():
+    """Verify magic bytes validation correctly distinguishes valid documents from spoofed files."""
+    from app.controllers.session_ctrl import validate_file_signature
+    
+    # Valid PDF magic bytes
+    valid_pdf = b"%PDF-1.4\n%...\n"
+    assert validate_file_signature("resume.pdf", valid_pdf) is True
+    
+    # Spoofed PDF (executable disguised as PDF)
+    fake_pdf = b"MZ\x90\x00\x03\x00\x00\x00"
+    assert validate_file_signature("resume.pdf", fake_pdf) is False
+
+    # Valid DOCX zip signature
+    valid_docx = b"PK\x03\x04\x14\x00\x06\x00"
+    assert validate_file_signature("cv.docx", valid_docx) is True
+
+    # Valid TXT
+    valid_txt = "Senior AI Engineer with 5 years experience.".encode("utf-8")
+    assert validate_file_signature("cv.txt", valid_txt) is True
+
+def test_start_session_cv_spoofing_rejected():
+    """Verify that uploading a file with invalid magic bytes returns 400 Bad Request."""
+    fake_pdf_content = b"MALICIOUS_EXECUTABLE_CONTENT_NOT_A_REAL_PDF"
+    files = {
+        "cv_file": ("exploit.pdf", fake_pdf_content, "application/pdf")
+    }
+    data = {
+        "job_title": "Senior AI Engineer",
+        "persona": "balanced",
+        "interview_type": "technical",
+        "language": "en",
+        "max_questions": "5",
+        "limit_mode": "questions",
+        "limit_value": "5"
+    }
+    response = client.post("/api/start-session-cv", data=data, files=files)
+    assert response.status_code == 400
+    assert "Invalid file signature" in response.json()["detail"]
+

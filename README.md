@@ -72,13 +72,14 @@ flowchart TB
 
 ### Core Technology Stack
 
-- **Frontend Application:** Next.js 16 (Turbopack), React 19, Vanilla CSS design tokens. Zero third-party UI component libraries; custom-crafted design system supporting dark mode, telemetry displays, and real-time audio visualization.
+- **Frontend Application:** Next.js 16 (Turbopack), React 19, Vanilla CSS design tokens. Zero third-party UI component libraries; custom-crafted design system supporting dark mode, live Voice Activity Detection (VAD) with visual 3s countdown, telemetry displays, and real-time audio visualization.
 - **Backend Application Gateway:** FastAPI with Python 3.11, Uvicorn ASGI server, supporting asynchronous WebSockets and non-blocking I/O.
 - **State Machine & Graph Orchestration:** LangGraph and LangChain Core for deterministic state transitions, message tracking, dynamic rubric comparison, and execution checkpoints.
 - **Inference Hardware & Providers:**
-  - Primary Conversational Engine: Groq LPU Cloud running `qwen/qwen3.8-27b` for sub-300ms Time-To-First-Token (TTFT).
+  - Primary Conversational Engine: Groq LPU Cloud running `llama-3.3-70b-versatile` and `llama-3.1-8b-instant` for sub-300ms Time-To-First-Token (TTFT).
   - Fallback Engine: Google Gemini 2.5 Flash with automatic cross-provider retry logic.
-- **Audio Processing & Speech Synthesis:** Decoupled phonetic middleware with streaming Base64 audio delivery via Edge-TTS and ElevenLabs.
+- **Audio Processing & Speech Synthesis:** Decoupled phonetic middleware with streaming Base64 audio delivery via Edge-TTS (`ar-EG-ShakirNeural`) and ElevenLabs.
+- **Document Processing & Upload Security:** Modern `pypdf` with strict binary magic bytes validation (`%PDF-`, `PK\x03\x04`) preventing MIME spoofing.
 - **Database & Persistence:** SQLAlchemy 2.0 with asynchronous drivers (`asyncpg` for PostgreSQL, `aiosqlite` for SQLite zero-config local fallback).
 - **Security & Infrastructure:** In-memory sliding-window IP rate limiting, input sanitization bounds, and automated health keep-alive daemons.
 

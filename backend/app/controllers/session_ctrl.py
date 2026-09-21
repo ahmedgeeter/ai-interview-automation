@@ -7,7 +7,7 @@ initializes the LangGraph state in memory, and offloads heavy research tasks (e.
 to background workers to ensure the API responds instantly.
 """
 import io
-import PyPDF2
+from pypdf import PdfReader
 from docx import Document
 from fastapi import APIRouter, Depends, BackgroundTasks, File, UploadFile, Form, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,17 +23,38 @@ import uuid
 
 router = APIRouter()
 
+def validate_file_signature(filename: str, content: bytes) -> bool:
+    """Validates real file magic bytes to prevent MIME spoofing."""
+    if not content:
+        return False
+    lower_name = filename.lower()
+    if lower_name.endswith(".pdf"):
+        return content.startswith(b"%PDF-")
+    elif lower_name.endswith(".docx"):
+        return content.startswith(b"PK\x03\x04")
+    elif lower_name.endswith(".txt"):
+        try:
+            content.decode("utf-8")
+            return b"\x00" not in content[:1024]
+        except UnicodeDecodeError:
+            return False
+    return False
+
 def extract_text_from_file(filename: str, content: bytes) -> str:
     text = ""
     try:
-        if filename.endswith(".pdf"):
-            reader = PyPDF2.PdfReader(io.BytesIO(content))
+        if filename.lower().endswith(".pdf"):
+            reader = PdfReader(io.BytesIO(content))
             for page in reader.pages:
-                text += page.extract_text() + "\n"
-        elif filename.endswith(".docx"):
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
+        elif filename.lower().endswith(".docx"):
             doc = Document(io.BytesIO(content))
             for para in doc.paragraphs:
                 text += para.text + "\n"
+        elif filename.lower().endswith(".txt"):
+            text = content.decode("utf-8", errors="replace")
     except Exception as e:
         print(f"Failed to parse CV: {e}")
     return text
@@ -108,6 +129,10 @@ async def start_session_cv(
     content = await cv_file.read()
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large. Maximum CV size is 5MB.")
+
+    # Security validation: Magic bytes inspection (anti-MIME spoofing)
+    if not validate_file_signature(cv_file.filename or "", content):
+        raise HTTPException(status_code=400, detail="Invalid file signature. File content does not match its extension.")
 
     session_id = str(uuid.uuid4())
     cv_text = extract_text_from_file(cv_file.filename, content)

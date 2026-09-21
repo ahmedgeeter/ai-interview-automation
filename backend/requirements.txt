@@ -6,7 +6,7 @@ langgraph
 langchain_groq
 langchain_google_genai
 langchain_community
-PyPDF2
+pypdf
 python-docx
 edge-tts
 gtts

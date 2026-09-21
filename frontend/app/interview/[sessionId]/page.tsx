@@ -178,21 +178,36 @@ export default function InterviewPage() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping, streamingText]);
 
+  const [silenceCountdown, setSilenceCountdown] = useState<number | null>(null);
+  const isRtl = locale === "ar";
+
   const handleSend = useCallback(() => {
     if (!inputValue.trim()) return;
+    setSilenceCountdown(null);
     sendMessage(inputValue);
     setInputValue("");
     stopListening();
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   }, [inputValue, sendMessage, stopListening]);
 
-  // Auto-send after 2 seconds of silence
+  // Voice Activity Detection (VAD): 3-second visual countdown before auto-sending
   useEffect(() => {
     if (isListening && inputValue.trim()) {
-      const t = setTimeout(() => {
-        handleSend();
-      }, 2000);
-      return () => clearTimeout(t);
+      setSilenceCountdown(3);
+      const interval = setInterval(() => {
+        setSilenceCountdown((prev) => {
+          if (prev === null) return null;
+          if (prev <= 1) {
+            clearInterval(interval);
+            handleSend();
+            return null;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(interval);
+    } else {
+      setSilenceCountdown(null);
     }
   }, [inputValue, isListening, handleSend]);
 
@@ -483,6 +498,32 @@ export default function InterviewPage() {
 
         {/* Input bar */}
         <div className="border-t border-slate-200 dark:border-stone-800/60 bg-white/80 dark:bg-stone-950/80 backdrop-blur-sm p-4">
+          {silenceCountdown !== null && silenceCountdown > 0 && (
+            <div className="max-w-3xl mx-auto mb-3 px-3.5 py-2 rounded-xl bg-blue-500/10 dark:bg-blue-500/20 border border-blue-500/30 text-blue-600 dark:text-blue-400 text-xs font-semibold flex items-center justify-between shadow-sm animate-fade-up">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-ping" />
+                <span>
+                  {voiceLang.startsWith("ar")
+                    ? `تم رصد التوقف عن التحدث: سيتم اعتماد الإجابة والإرسال تلقائياً خلال ${silenceCountdown} ثوانٍ...`
+                    : `Speech silence detected: Auto-sending your response in ${silenceCountdown}s...`}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSilenceCountdown(null)}
+                  className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-200 dark:bg-stone-800 text-slate-700 dark:text-stone-300 hover:bg-slate-300 dark:hover:bg-stone-700 transition-colors font-medium"
+                >
+                  {voiceLang.startsWith("ar") ? "إلغاء التلقائي" : "Cancel"}
+                </button>
+                <button
+                  onClick={handleSend}
+                  className="text-[11px] px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold transition-all shadow-sm"
+                >
+                  {voiceLang.startsWith("ar") ? "إرسال فوراً" : "Send Now"}
+                </button>
+              </div>
+            </div>
+          )}
           <div className="flex items-end gap-3 max-w-3xl mx-auto">
             <button
               onClick={toggleListening}

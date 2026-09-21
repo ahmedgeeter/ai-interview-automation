@@ -9,18 +9,21 @@ import os
 from app.models import state
 from app.services.tts_service import generate_full_audio_from_text
 
-GROQ_FAST_MODEL = os.getenv("GROQ_FAST_MODEL", "qwen/qwen3.8-27b")
+GROQ_FAST_MODEL = os.getenv("GROQ_FAST_MODEL", "llama-3.1-8b-instant")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+_groq_key = os.getenv("GROQ_API_KEY") or "gsk_placeholder_for_import_resilience"
+_google_key = os.getenv("GOOGLE_API_KEY") or "placeholder_for_import_resilience"
 
 live_evaluator = ChatGroq(
     model=GROQ_FAST_MODEL,
     temperature=0,
-    api_key=os.getenv("GROQ_API_KEY", "")
+    api_key=_groq_key
 )
 fallback_live_evaluator = ChatGoogleGenerativeAI(
     model=GEMINI_MODEL, 
     temperature=0, 
-    api_key=os.getenv("GOOGLE_API_KEY", "")
+    api_key=_google_key
 )
 
 async def generate_live_scores(messages, job_title) -> Tuple[Dict[str, Any] | None, Dict[str, int]]:

@@ -41,35 +41,41 @@ if _langfuse_secret and not _langfuse_secret.startswith("sk-lf-..."):
 
 USE_GROQ_PRIMARY = os.getenv("USE_GROQ_PRIMARY", "true").lower() in ("true", "1", "yes")
 
-GROQ_MODEL_NAME = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
+# Active production models on Groq
+GROQ_MODEL_NAME = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_FALLBACK_MODEL = os.getenv("GROQ_FALLBACK_MODEL", "llama-3.1-8b-instant")
 GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+# Safe API key resolution to prevent import-time crashes during testing or cold start
+_groq_key = os.getenv("GROQ_API_KEY") or "gsk_placeholder_for_import_resilience"
+_google_key = os.getenv("GOOGLE_API_KEY") or "placeholder_for_import_resilience"
 
 if USE_GROQ_PRIMARY:
     PRIMARY_MODEL_NAME = GROQ_MODEL_NAME
-    FALLBACK_MODEL_NAME = "qwen/qwen3.6-27b"
+    FALLBACK_MODEL_NAME = GROQ_FALLBACK_MODEL
     primary_llm = ChatGroq(
         model=GROQ_MODEL_NAME,
         temperature=0.7,
         max_tokens=220,
-        api_key=os.getenv("GROQ_API_KEY", "")
+        api_key=_groq_key
     )
     primary_evaluator_llm = ChatGroq(
         model=GROQ_MODEL_NAME,
         temperature=0.1,
         max_tokens=1500,
-        api_key=os.getenv("GROQ_API_KEY", "")
+        api_key=_groq_key
     )
     fallback_llm = ChatGroq(
-        model="qwen/qwen3.6-27b",
+        model=GROQ_FALLBACK_MODEL,
         temperature=0.7,
         max_tokens=220,
-        api_key=os.getenv("GROQ_API_KEY", "")
+        api_key=_groq_key
     )
     fallback_evaluator_llm = ChatGroq(
-        model="qwen/qwen3.6-27b",
+        model=GROQ_FALLBACK_MODEL,
         temperature=0.1,
         max_tokens=1500,
-        api_key=os.getenv("GROQ_API_KEY", "")
+        api_key=_groq_key
     )
 else:
     PRIMARY_MODEL_NAME = GEMINI_MODEL_NAME
@@ -78,23 +84,23 @@ else:
         model=GEMINI_MODEL_NAME, 
         temperature=0.7, 
         max_retries=1,
-        api_key=os.getenv("GOOGLE_API_KEY", "")
+        api_key=_google_key
     )
     primary_evaluator_llm = ChatGoogleGenerativeAI(
         model=GEMINI_MODEL_NAME, 
         temperature=0.1, 
         max_retries=1,
-        api_key=os.getenv("GOOGLE_API_KEY", "")
+        api_key=_google_key
     )
     fallback_llm = ChatGroq(
         model=GROQ_MODEL_NAME,
         temperature=0.7,
-        api_key=os.getenv("GROQ_API_KEY", "")
+        api_key=_groq_key
     )
     fallback_evaluator_llm = ChatGroq(
         model=GROQ_MODEL_NAME,
         temperature=0.1,
-        api_key=os.getenv("GROQ_API_KEY", "")
+        api_key=_groq_key
     )
 
 

@@ -106,11 +106,15 @@ def fallback_to_sqlite():
 
 async def get_db():
     global engine, async_session_maker
-    try:
-        async with async_session_maker() as session:
-            yield session
-    except Exception as e:
-        print(f"[Database Error] Primary DB session failed: {e}. Activating SQLite fallback.")
+    if async_session_maker is None:
         fallback_to_sqlite()
-        async with async_session_maker() as session:
-            yield session
+
+    try:
+        session = async_session_maker()
+    except Exception as e:
+        print(f"[Database Error] Primary DB session creation failed: {e}. Activating SQLite fallback.")
+        fallback_to_sqlite()
+        session = async_session_maker()
+
+    async with session:
+        yield session
