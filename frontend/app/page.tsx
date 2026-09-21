@@ -83,7 +83,7 @@ const VOICES = [
     code: "en" as const,
     label: "Technical English",
     labelAr: "إنجليزي تقني",
-    voiceName: "Charlie · English",
+    voiceName: "Brian · US Tech Lead",
     badge: "International",
     badgeAr: "دولي"
   }

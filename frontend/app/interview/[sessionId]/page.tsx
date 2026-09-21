@@ -110,7 +110,7 @@ function AudioUnlockSplash({
         <p className="text-sm text-slate-500 dark:text-stone-400 mb-8 leading-relaxed">
           {voiceLang.startsWith("ar")
             ? `المحاور الصوتي: ${voiceLang === "ar-eg" ? "شاكر (قائد تقني مصري)" : "حامد (عربي فصحى)"} — انقر للدخول وبدء الجلسة الصوتية`
-            : "Interviewer: Charlie (Tech Lead) — Click to enter and enable audio playback"}
+            : "Interviewer: Brian (Senior US Tech Lead) — Click to enter and enable audio playback"}
         </p>
         <button
           onClick={onEnter}
@@ -143,7 +143,7 @@ export default function InterviewPage() {
   const {
     messages, isConnected, isTyping, isAiSpeaking, isListening, isWakingUpServer,
     questionCount, liveScores, streamingText, sessionConfig,
-    pendingAudio, setPendingAudio, playAudio, flushAudioQueue, turnState,
+    playAudio, flushAudioQueue, turnState,
     sendMessage, sendEndInterview, changeLanguage,
     toggleListening, stopListening, stopCurrentAudio, setIsAiSpeaking,
     isAudioPaused, pauseAudio, resumeAudio, togglePauseAudio,
@@ -213,20 +213,13 @@ export default function InterviewPage() {
 
   // ── AUDIO UNLOCK ──────────────────────────────────────────────────────────────
   const handleEnterRoom = useCallback(async () => {
-    // 1. Unlock the HTML5 Audio context
+    // 1. Unlock the HTML5 Audio context cleanly
     await unlockAudioContext();
     // 2. Mark as unlocked
     setAudioUnlocked(true);
-    // 3. Immediately flush queued audio chunks
+    // 3. Immediately flush queued audio chunks sequentially
     flushAudioQueue();
-    if (pendingAudio) {
-      const audioToPlay = pendingAudio;
-      setPendingAudio(null);
-      setTimeout(() => {
-        playAudio(audioToPlay);
-      }, 50);
-    }
-  }, [pendingAudio, setPendingAudio, playAudio, flushAudioQueue]);
+  }, [flushAudioQueue]);
 
   const handleMuteToggle = () => {
     setIsVoiceMuted(!isVoiceMuted);

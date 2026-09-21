@@ -262,7 +262,7 @@ async def test_voice(lang: str):
     elif lang == "ar-eg":
         text = "أهلاً بيك يا باشمهندس، أنا شاكر وهكون معاك في المقابلة التقنية النهاردة."
     else:
-        text = "Hello, I am Charlie and I will be conducting your technical interview today."
+        text = "Hello, I am Brian and I will be conducting your technical interview today."
         
     audio_b64, _ = await generate_full_audio_from_text(text, lang)
     return {"audio_base64": audio_b64}

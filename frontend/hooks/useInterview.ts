@@ -104,39 +104,37 @@ export function useInterview(
     if (isPlayingAudio.current || audioQueue.current.length === 0 || isVoiceMutedRef.current || isAudioPausedRef.current) return;
     
     if (!isAudioUnlocked()) {
-      console.warn("[useInterview] Audio not unlocked yet. Storing in queue.");
       return;
     }
+
+    const chunk = audioQueue.current.shift();
+    if (!chunk) return;
 
     isPlayingAudio.current = true;
     setIsAiSpeaking(true);
     setTurnState("SPEAKING");
 
-    const chunk = audioQueue.current.shift();
-    if (chunk) {
-      playMp3Base64(
-        chunk,
-        () => {}, // onStart
-        () => {
-          isPlayingAudio.current = false;
-          if (isAudioPausedRef.current) {
-            // User paused while this chunk was finishing; hold queue
-            return;
-          }
-          if (audioQueue.current.length > 0) {
-            processAudioQueue();
-          } else {
-            setIsAiSpeaking(false);
-            setTurnState("LISTENING");
-          }
+    playMp3Base64(
+      chunk,
+      () => {}, // onStart
+      () => {
+        isPlayingAudio.current = false;
+        if (isAudioPausedRef.current) {
+          // User paused while this chunk was finishing; hold queue
+          return;
         }
-      );
-    } else {
-      isPlayingAudio.current = false;
-    }
+        if (audioQueue.current.length > 0) {
+          processAudioQueue();
+        } else {
+          setIsAiSpeaking(false);
+          setTurnState("LISTENING");
+        }
+      }
+    );
   }, []);
 
   const queueAudioChunk = useCallback((base64Audio: string) => {
+    if (!base64Audio) return;
     audioQueue.current.push(base64Audio);
     processAudioQueue();
   }, [processAudioQueue]);
@@ -156,18 +154,16 @@ export function useInterview(
     const handleInteraction = async () => {
       if (!isAudioUnlocked()) {
         await unlockAudioContext();
+        flushAudioQueue();
       }
-      flushAudioQueue();
     };
 
-    window.addEventListener("click", handleInteraction);
-    window.addEventListener("touchstart", handleInteraction);
-    window.addEventListener("keydown", handleInteraction);
+    window.addEventListener("click", handleInteraction, { once: true });
+    window.addEventListener("touchstart", handleInteraction, { once: true });
 
     return () => {
       window.removeEventListener("click", handleInteraction);
       window.removeEventListener("touchstart", handleInteraction);
-      window.removeEventListener("keydown", handleInteraction);
     };
   }, [flushAudioQueue]);
 
@@ -249,6 +245,8 @@ export function useInterview(
   }, []);
 
   const handleInterrupt = useCallback(() => {
+    audioQueue.current = [];
+    isPlayingAudio.current = false;
     stopCurrentAudio();
     setTurnState("LISTENING");
     wsRef.current?.send(JSON.stringify({ type: "interrupt" }));
@@ -393,10 +391,10 @@ export function useInterview(
     (content: string) => {
       if (!content.trim() || wsRef.current?.readyState !== WebSocket.OPEN) return;
       
-      // Barge-in: interrupt AI if speaking
-      if (turnState === "SPEAKING") {
-        handleInterrupt();
-      }
+      // Stop and clear any existing audio queue completely when candidate speaks/submits
+      audioQueue.current = [];
+      isPlayingAudio.current = false;
+      stopCurrentAudio();
 
       setTurnState("THINKING");
       setMessages((prev) => [...prev, { role: "user", content, time: now() }]);
@@ -404,7 +402,7 @@ export function useInterview(
       setStreamingText("");
       wsRef.current.send(JSON.stringify({ type: "message", content }));
     },
-    [now, turnState, handleInterrupt]
+    [now, stopCurrentAudio]
   );
 
   const sendEndInterview = useCallback(() => {

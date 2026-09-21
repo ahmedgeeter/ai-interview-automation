@@ -20,6 +20,7 @@ function getAudio(): HTMLAudioElement {
     if (typeof window !== "undefined") {
       _audio = document.createElement('audio');
       _audio.id = "global-ai-audio";
+      _audio.preload = "auto";
       _audio.style.display = "none";
       document.body.appendChild(_audio);
     }
@@ -37,21 +38,36 @@ export function onAudioUnlocked(cb: () => void) {
   }
 }
 
-/** Call this inside a user click/touch event to unlock audio for the session. */
+/** Call this inside a user click/touch event to unlock audio for the session safely. */
 export async function unlockAudioContext(): Promise<void> {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || _isUnlocked) return;
   
   try {
-    const audio = getAudio();
     _isUnlocked = true; // Mark as unlocked immediately upon user gesture
-    // A tiny, silent MP3 base64 string to initialize the audio engine during a user gesture
-    audio.src = "data:audio/mpeg;base64,//NExAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq";
-    await audio.play();
+    
+    // Unlock using Web Audio Context or a temporary detached element to never pollute _audio
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (AudioCtx) {
+      const ctx = new AudioCtx();
+      await ctx.resume();
+      // Generate micro-buffer silence
+      const buffer = ctx.createBuffer(1, 1, 22050);
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      source.start(0);
+    }
+
+    // Also prime our playback HTMLAudioElement safely
+    const audio = getAudio();
+    audio.volume = 1.0;
+
     console.log("[Audio] HTML5 Audio unlocked successfully via user gesture");
-    _onUnlockCallbacks.forEach(cb => {
+    const cbs = [..._onUnlockCallbacks];
+    _onUnlockCallbacks = [];
+    cbs.forEach(cb => {
       try { cb(); } catch {}
     });
-    _onUnlockCallbacks = [];
   } catch (e) {
     console.error("[Audio] Unlock error:", e);
   }
@@ -95,9 +111,12 @@ export async function resumeAudio(): Promise<void> {
   }
 }
 
-/** Stop currently playing audio and reset playback state. */
-export function stopCurrentAudio(): void {
+/** Stop currently playing audio and reset playback state cleanly. */
+export function stopCurrentAudio(triggerOnEnd: boolean = false): void {
   _isPaused = false;
+  const cb = _currentOnEnd;
+  _currentOnEnd = null; // Clear first to prevent re-entrant calls
+
   if (_audio) {
     _audio.pause();
     _audio.currentTime = 0;
@@ -105,19 +124,19 @@ export function stopCurrentAudio(): void {
     _audio.onended = null;
     _audio.onerror = null;
     if (_audio.src && _audio.src.startsWith('blob:')) {
-      URL.revokeObjectURL(_audio.src);
+      try { URL.revokeObjectURL(_audio.src); } catch {}
     }
     _audio.src = "";
   }
-  if (_currentOnEnd) {
-    const cb = _currentOnEnd;
-    _currentOnEnd = null;
-    cb();
+
+  if (triggerOnEnd && cb) {
+    try { cb(); } catch {}
   }
 }
 
 /**
  * Play an MP3 from a base64 string via HTML5 Audio Blob.
+ * Ensures the audio buffer is ready before playback to prevent dropping initial words.
  */
 export async function playMp3Base64(
   base64: string,
@@ -139,25 +158,7 @@ export async function playMp3Base64(
     audio.onended = null;
     audio.onerror = null;
 
-    // Set up new listeners
-    audio.onplay = () => {
-      console.log("[Audio] Playback started successfully");
-      onStart?.();
-    };
-    
-    audio.onended = () => {
-      console.log("[Audio] Playback ended naturally");
-      _currentOnEnd = null;
-      onEnd?.();
-    };
-    
-    audio.onerror = (e) => {
-      console.error("[Audio] HTML5 Audio error during playback:", audio.error);
-      _currentOnEnd = null;
-      onEnd?.();
-    };
-
-    // Convert Base64 to Blob to avoid Data URL length limits and ensure perfect MIME handling
+    // Convert Base64 to Blob
     const binaryStr = atob(base64);
     const len = binaryStr.length;
     const bytes = new Uint8Array(len);
@@ -167,20 +168,45 @@ export async function playMp3Base64(
     const blob = new Blob([bytes], { type: 'audio/mpeg' });
     const blobUrl = URL.createObjectURL(blob);
     
-    // Clean up previous blob URL if exists to avoid memory leaks
+    // Clean up previous blob URL if exists
     if (audio.src && audio.src.startsWith('blob:')) {
-        URL.revokeObjectURL(audio.src);
+      try { URL.revokeObjectURL(audio.src); } catch {}
     }
 
     audio.src = blobUrl;
     audio.volume = 1.0;
+
+    // Set up listeners
+    audio.onplay = () => {
+      onStart?.();
+    };
     
-    // Play the new source
-    console.log(`[Audio] Attempting to play new audio blob (${bytes.length} bytes)...`);
-    await audio.play();
-  } catch (e) {
-    console.error("[Audio] Playback error:", e);
+    audio.onended = () => {
+      _currentOnEnd = null;
+      try { URL.revokeObjectURL(blobUrl); } catch {}
+      onEnd?.();
+    };
+    
+    audio.onerror = (e) => {
+      console.error("[Audio] HTML5 Audio error:", audio.error);
+      _currentOnEnd = null;
+      try { URL.revokeObjectURL(blobUrl); } catch {}
+      onEnd?.();
+    };
+
+    // Play with graceful handling
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+      await playPromise;
+    }
+  } catch (e: any) {
+    // If AbortError (interrupted by user or new message), cleanly resolve without panic
+    if (e?.name !== "AbortError") {
+      console.warn("[Audio] Playback exception:", e);
+    }
+    const cb = _currentOnEnd;
     _currentOnEnd = null;
-    onEnd?.();
+    cb?.();
   }
 }
+
