@@ -3,4 +3,4 @@ services:
     name: ai-interview-backend
     env: docker
     plan: free
-    autoDeploy: false
+    autoDeploy: true
