@@ -260,7 +260,7 @@ async def test_voice(lang: str):
     if lang == "ar":
         text = "مرحباً بك، أنا حامد وسأكون محاورك في هذه المقابلة التقنية."
     elif lang == "ar-eg":
-        text = "أهلاً بيك يا باشمهندس، أنا شاكر وهكون معاك في المقابلة التقنية النهاردة."
+        text = "أهلاً بيك يا باشمهندس، أنا ممدوح وهكون معاك في المقابلة التقنية النهاردة."
     else:
         text = "Hello, I am Brian and I will be conducting your technical interview today."
         

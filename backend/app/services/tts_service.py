@@ -10,15 +10,22 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Ultra-realistic, fast, 100% free male Tech Lead voices per language
+# Authentic Egyptian Voice IDs on ElevenLabs (Trained on native Masri dialect)
+# 68MRVrnQAt8vLbu0FCzw: Mamdoh (ممدوح - صوت مصري أصيل طبيعي وواقعي جداً)
+# jsCqWAovK2zikIGpzIma: Tarek (طارق - قائد تقني مصري)
+DEFAULT_EGYPTIAN_VOICE_ID = os.getenv("ELEVENLABS_EGYPTIAN_VOICE_ID", "68MRVrnQAt8vLbu0FCzw")
+DEFAULT_STANDARD_AR_VOICE_ID = os.getenv("ELEVENLABS_ARABIC_VOICE_ID", "jsCqWAovK2zikIGpzIma")
+DEFAULT_ENGLISH_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "IKne3meq5aSn9XLyUdCD")
+
+# High-fidelity male Tech Lead voice profiles for Edge-TTS fallback
 # Ensuring strictly consistent male gender across all fallbacks (zero switching to female)
 VOICE_PROFILES: Dict[str, Dict[str, Any]] = {
     "ar-eg": {
-        "primary": "ar-EG-ShakirNeural",
-        "fallbacks": ["ar-SA-HamedNeural", "ar-AE-HamdanNeural"],
-        "rate": "+5%",
+        "primary": "ar-SA-HamedNeural",       # Hamed is the highest quality, most natural male Arabic voice in Edge-TTS
+        "fallbacks": ["ar-EG-ShakirNeural", "ar-AE-HamdanNeural"],
+        "rate": "+4%",
         "pitch": "+0Hz",
-        "label": "شاكر (قائد تقني مصري)"
+        "label": "ممدوح (مصري أصيل ElevenLabs) / حامد (عربي رزين)"
     },
     "ar": {
         "primary": "ar-SA-HamedNeural",
@@ -36,10 +43,96 @@ VOICE_PROFILES: Dict[str, Dict[str, Any]] = {
     }
 }
 
+# Shared persistent HTTP client with HTTP/2 and connection pooling for minimal latency
+_http_client: httpx.AsyncClient | None = None
+
+def get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            http2=True,
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=60.0),
+            timeout=httpx.Timeout(8.0, connect=2.5)
+        )
+    return _http_client
+
 class BaseTTSProvider(ABC):
     @abstractmethod
     async def generate_full_audio(self, text: str, voice: str, rate: str = "+0%", pitch: str = "+0Hz") -> bytes:
         pass
+
+class ElevenLabsProvider:
+    def __init__(self):
+        self.keys: List[str] = []
+        primary = os.getenv("ELEVENLABS_API_KEY", "").strip()
+        if primary:
+            self.keys.append(primary)
+        fallback = os.getenv("ELEVENLABS_API_KEY_FALLBACK", "").strip()
+        if fallback and fallback not in self.keys:
+            self.keys.append(fallback)
+        self.current_key_idx = 0
+
+    def is_configured(self) -> bool:
+        return len(self.keys) > 0
+
+    def _get_current_key(self) -> str | None:
+        if not self.keys:
+            return None
+        return self.keys[self.current_key_idx % len(self.keys)]
+
+    def _rotate_key(self):
+        if len(self.keys) > 1:
+            self.current_key_idx = (self.current_key_idx + 1) % len(self.keys)
+
+    def _get_voice_id(self, language: str) -> str:
+        if language == "ar-eg":
+            return DEFAULT_EGYPTIAN_VOICE_ID
+        elif language == "ar":
+            return DEFAULT_STANDARD_AR_VOICE_ID
+        return DEFAULT_ENGLISH_VOICE_ID
+
+    async def generate_full_audio(self, text: str, language: str) -> bytes:
+        if not self.keys:
+            raise ValueError("No ElevenLabs API key configured")
+
+        voice_id = self._get_voice_id(language)
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?optimize_streaming_latency=3"
+        client = get_http_client()
+        models = ["eleven_flash_v2_5", "eleven_multilingual_v2"]
+
+        for _ in range(max(1, len(self.keys))):
+            api_key = self._get_current_key()
+            if not api_key:
+                break
+            headers = {
+                "Accept": "audio/mpeg",
+                "Content-Type": "application/json",
+                "xi-api-key": api_key
+            }
+            for model in models:
+                data = {
+                    "text": text,
+                    "model_id": model,
+                    "voice_settings": {
+                        "stability": 0.45,
+                        "similarity_boost": 0.85,
+                        "style": 0.15,
+                        "use_speaker_boost": True
+                    }
+                }
+                try:
+                    res = await client.post(url, json=data, headers=headers)
+                    if res.status_code == 200:
+                        return res.content
+                    elif res.status_code in (401, 429):
+                        self._rotate_key()
+                        break
+                    elif res.status_code == 400:
+                        continue
+                except Exception:
+                    break
+
+        raise Exception("ElevenLabs generation failed or quota exceeded")
 
 class EdgeTTSProvider(BaseTTSProvider):
     async def generate_full_audio(self, text: str, voice: str, rate: str = "+0%", pitch: str = "+0Hz") -> bytes:
@@ -152,20 +245,22 @@ def split_into_speech_chunks(text: str) -> List[str]:
                     if buf:
                         chunks.append(buf)
                     buf = p
-            if buf:
-                chunks.append(buf)
+            if buffer if (buffer := buf) else "":
+                chunks.append(buffer)
         else:
             chunks.append(sentence)
 
     return [c for c in chunks if c.strip()]
 
-# Cached singleton provider
+# Cached singleton providers
+_eleven_provider = ElevenLabsProvider()
 _edge_provider = EdgeTTSProvider()
 
 async def generate_audio_chunks_from_text(text: str, language: str = "en") -> AsyncGenerator[str, None]:
     """
-    Splits text into low-latency chunks, synthesizes using ultra-fast Microsoft Neural voices,
-    and yields base64 audio chunks with sub-300ms response time and 100% male Tech Lead consistency.
+    Splits text into low-latency chunks, synthesizes using authentic ElevenLabs models when configured,
+    with instant fallback to high-fidelity Microsoft Azure Neural voices.
+    Yields base64 audio chunks with sub-300ms response time and 100% male Tech Lead consistency.
     """
     if not text or not text.strip():
         return
@@ -182,25 +277,35 @@ async def generate_audio_chunks_from_text(text: str, language: str = "en") -> As
         audio_payload = apply_phonetic_middleware(chunk_text, language)
         audio_bytes = None
 
-        # Tier 1: Try Edge-TTS with primary voice (Fastest, zero cost, ~200ms)
-        try:
-            audio_bytes = await asyncio.wait_for(
-                _edge_provider.generate_full_audio(audio_payload, primary_voice, rate=rate, pitch=pitch),
-                timeout=3.5
-            )
-        except Exception as e1:
-            print(f"[TTS] Primary voice {primary_voice} failed ({e1}). Switching to fallback male voice...")
-            # Tier 2: Try fallbacks in order (Strictly male voices only)
-            for fallback_voice in fallbacks:
-                try:
-                    audio_bytes = await asyncio.wait_for(
-                        _edge_provider.generate_full_audio(audio_payload, fallback_voice, rate=rate, pitch=pitch),
-                        timeout=3.0
-                    )
-                    if audio_bytes:
-                        break
-                except Exception as e_fb:
-                    print(f"[TTS] Fallback voice {fallback_voice} failed: {e_fb}")
+        # Tier 1: Authentic Human Voice via ElevenLabs (if configured)
+        if _eleven_provider.is_configured():
+            try:
+                audio_bytes = await asyncio.wait_for(
+                    _eleven_provider.generate_full_audio(audio_payload, language),
+                    timeout=2.2
+                )
+            except Exception as e_el:
+                print(f"[TTS] ElevenLabs bypassed ({e_el}). Falling back to neural engine...")
+
+        # Tier 2: High-Quality Microsoft Azure Neural Voice
+        if not audio_bytes:
+            try:
+                audio_bytes = await asyncio.wait_for(
+                    _edge_provider.generate_full_audio(audio_payload, primary_voice, rate=rate, pitch=pitch),
+                    timeout=3.5
+                )
+            except Exception as e1:
+                print(f"[TTS] Primary voice {primary_voice} failed ({e1}). Switching to fallback male voice...")
+                for fallback_voice in fallbacks:
+                    try:
+                        audio_bytes = await asyncio.wait_for(
+                            _edge_provider.generate_full_audio(audio_payload, fallback_voice, rate=rate, pitch=pitch),
+                            timeout=3.0
+                        )
+                        if audio_bytes:
+                            break
+                    except Exception as e_fb:
+                        print(f"[TTS] Fallback voice {fallback_voice} failed: {e_fb}")
 
         if audio_bytes:
             yield base64.b64encode(audio_bytes).decode("utf-8")
@@ -221,23 +326,35 @@ async def generate_full_audio_from_text(text: str, language: str = "en") -> Tupl
     audio_payload = apply_phonetic_middleware(text, language)
     audio_bytes = None
 
-    try:
-        audio_bytes = await asyncio.wait_for(
-            _edge_provider.generate_full_audio(audio_payload, primary_voice, rate=rate, pitch=pitch),
-            timeout=5.0
-        )
-    except Exception as e1:
-        print(f"[TTS] Full audio primary failed ({e1}). Using fallback...")
-        for fallback_voice in fallbacks:
-            try:
-                audio_bytes = await asyncio.wait_for(
-                    _edge_provider.generate_full_audio(audio_payload, fallback_voice, rate=rate, pitch=pitch),
-                    timeout=4.0
-                )
-                if audio_bytes:
-                    break
-            except Exception:
-                pass
+    # Tier 1: ElevenLabs Authentic Voice
+    if _eleven_provider.is_configured():
+        try:
+            audio_bytes = await asyncio.wait_for(
+                _eleven_provider.generate_full_audio(audio_payload, language),
+                timeout=3.0
+            )
+        except Exception as e_el:
+            print(f"[TTS] Full audio ElevenLabs failed ({e_el}). Using neural fallback...")
+
+    # Tier 2: Neural Edge-TTS
+    if not audio_bytes:
+        try:
+            audio_bytes = await asyncio.wait_for(
+                _edge_provider.generate_full_audio(audio_payload, primary_voice, rate=rate, pitch=pitch),
+                timeout=5.0
+            )
+        except Exception as e1:
+            print(f"[TTS] Full audio primary failed ({e1}). Using fallback...")
+            for fallback_voice in fallbacks:
+                try:
+                    audio_bytes = await asyncio.wait_for(
+                        _edge_provider.generate_full_audio(audio_payload, fallback_voice, rate=rate, pitch=pitch),
+                        timeout=4.0
+                    )
+                    if audio_bytes:
+                        break
+                except Exception:
+                    pass
 
     if audio_bytes:
         return base64.b64encode(audio_bytes).decode("utf-8"), len(text)

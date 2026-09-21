@@ -109,7 +109,7 @@ function AudioUnlockSplash({
         <h1 className="text-xl font-black text-slate-900 dark:text-stone-50 mb-2">{jobTitle}</h1>
         <p className="text-sm text-slate-500 dark:text-stone-400 mb-8 leading-relaxed">
           {voiceLang.startsWith("ar")
-            ? `المحاور الصوتي: ${voiceLang === "ar-eg" ? "شاكر (قائد تقني مصري)" : "حامد (عربي فصحى)"} — انقر للدخول وبدء الجلسة الصوتية`
+            ? `المحاور الصوتي: ${voiceLang === "ar-eg" ? "ممدوح (قائد تقني مصري أصيل)" : "حامد (عربي فصحى)"} — انقر للدخول وبدء الجلسة الصوتية`
             : "Interviewer: Brian (Senior US Tech Lead) — Click to enter and enable audio playback"}
         </p>
         <button

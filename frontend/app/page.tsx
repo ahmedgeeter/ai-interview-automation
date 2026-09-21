@@ -67,7 +67,7 @@ const VOICES = [
     code: "ar-eg" as const,
     label: "Egyptian Arabic",
     labelAr: "مصري تقني أصيل",
-    voiceName: "Shakir · Egyptian Tech Lead",
+    voiceName: "Mamdoh · Authentic Egyptian Lead",
     badge: "Recommended",
     badgeAr: "موصى به"
   },
